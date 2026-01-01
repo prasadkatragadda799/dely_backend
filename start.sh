@@ -2,7 +2,22 @@
 set -e
 
 echo "Running database migrations..."
-alembic upgrade head || echo "Migration failed, continuing..."
+# Retry migrations up to 3 times with 5 second delays
+for i in {1..3}; do
+    echo "Migration attempt $i of 3..."
+    if alembic upgrade head; then
+        echo "Migrations completed successfully!"
+        break
+    else
+        if [ $i -eq 3 ]; then
+            echo "[ERROR] Migrations failed after 3 attempts!"
+            echo "[ERROR] Please check database connection and migration files."
+            exit 1
+        fi
+        echo "Migration failed, retrying in 5 seconds..."
+        sleep 5
+    fi
+done
 
 # Create admin user if credentials are provided and no admin exists
 # Run with timeout to avoid blocking startup
