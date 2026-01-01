@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # For PostgreSQL: postgresql://user:password@localhost:5432/dely_db
     # For MySQL: mysql+pymysql://user:password@localhost:3306/dely_db
     # For Render: Use DATABASE_URL from environment (automatically set by Render)
+    # Render provides postgres:// URL which is automatically converted to postgresql://
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dely.db")
     
     # JWT

@@ -17,11 +17,14 @@ if database_url.startswith("sqlite"):
         connect_args={"check_same_thread": False}  # Needed for SQLite
     )
 else:
+    # PostgreSQL configuration optimized for Render
     engine = create_engine(
         database_url,
-        pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20
+        pool_pre_ping=True,  # Verify connections before using
+        pool_size=10,  # Number of connections to maintain
+        max_overflow=20,  # Additional connections allowed
+        pool_recycle=3600,  # Recycle connections after 1 hour
+        echo=False  # Set to True for SQL query logging (debug only)
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
