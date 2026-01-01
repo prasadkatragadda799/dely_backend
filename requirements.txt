@@ -17,6 +17,7 @@ psycopg2-binary==2.9.9
 # Authentication
 python-jose[cryptography]==3.3.0
 bcrypt==4.1.2
+cryptography==41.0.7
 
 # Utilities
 python-dotenv==1.0.0
