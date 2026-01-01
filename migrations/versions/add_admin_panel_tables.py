@@ -49,12 +49,16 @@ def upgrade() -> None:
     
     # Create brands table
     if 'brands' not in existing_tables:
+        # Use String(36) for foreign keys to match existing tables created in initial migration
+        # Existing tables (companies, categories, products, orders, users) all use String(36) for IDs
+        fk_uuid_type = sa.String(length=36)  # Always use String(36) for FKs to existing tables
+        
         op.create_table(
         'brands',
         sa.Column('id', uuid_type, nullable=False),
         sa.Column('name', sa.String(length=255), nullable=False),
-        sa.Column('company_id', uuid_type, nullable=True),
-        sa.Column('category_id', uuid_type, nullable=True),
+        sa.Column('company_id', fk_uuid_type, nullable=True),
+        sa.Column('category_id', fk_uuid_type, nullable=True),
         sa.Column('logo_url', sa.String(length=500), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('updated_at', sa.DateTime(), nullable=False),
@@ -66,10 +70,13 @@ def upgrade() -> None:
     
     # Create product_images table
     if 'product_images' not in existing_tables:
+        # Use String(36) for product_id to match products.id type (existing table)
+        fk_uuid_type = sa.String(length=36)
+        
         op.create_table(
         'product_images',
         sa.Column('id', uuid_type, nullable=False),
-        sa.Column('product_id', uuid_type, nullable=False),
+        sa.Column('product_id', fk_uuid_type, nullable=False),
         sa.Column('image_url', sa.String(length=500), nullable=False),
         sa.Column('display_order', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('is_primary', sa.Boolean(), nullable=False, server_default='0'),
@@ -81,10 +88,14 @@ def upgrade() -> None:
     
     # Create order_status_history table
     if 'order_status_history' not in existing_tables:
+        # Use String(36) for order_id to match orders.id type (existing table)
+        # Use uuid_type for changed_by (references admins.id which is UUID)
+        fk_uuid_type = sa.String(length=36)
+        
         op.create_table(
         'order_status_history',
         sa.Column('id', uuid_type, nullable=False),
-        sa.Column('order_id', uuid_type, nullable=False),
+        sa.Column('order_id', fk_uuid_type, nullable=False),
         sa.Column('status', sa.String(length=20), nullable=False),
         sa.Column('changed_by', uuid_type, nullable=True),
         sa.Column('notes', sa.Text(), nullable=True),
@@ -118,10 +129,13 @@ def upgrade() -> None:
     
     # Create kyc_documents table
     if 'kyc_documents' not in existing_tables:
+        # Use String(36) for user_id to match users.id type (existing table)
+        fk_uuid_type = sa.String(length=36)
+        
         op.create_table(
         'kyc_documents',
         sa.Column('id', uuid_type, nullable=False),
-        sa.Column('user_id', uuid_type, nullable=False),
+        sa.Column('user_id', fk_uuid_type, nullable=False),
         sa.Column('document_type', sa.String(length=50), nullable=False),
         sa.Column('document_url', sa.String(length=500), nullable=False),
         sa.Column('uploaded_at', sa.DateTime(), nullable=False),
