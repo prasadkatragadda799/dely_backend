@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # CDN
     CDN_BASE_URL: str = "https://cdn.dely.com"
     
+    # Admin Default Credentials (for initial setup)
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+    ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Admin")
+    ADMIN_ROLE: str = os.getenv("ADMIN_ROLE", "super_admin")  # super_admin, admin, manager, support
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

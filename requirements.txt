@@ -3,10 +3,9 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 gunicorn==21.2.0
 python-multipart==0.0.6
-# Pydantic - using versions with pre-built wheels
-# Note: Install separately in build command to ensure binary-only
-pydantic==2.3.0
-pydantic-settings==2.0.3
+# Pydantic - using version with wheels for Python 3.13
+pydantic==2.5.3
+pydantic-settings==2.1.0
 
 # Database
 sqlalchemy==2.0.23
