@@ -1,8 +1,7 @@
 services:
   - type: web
     name: dely-api
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: Dockerfile
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.12

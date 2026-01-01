@@ -12,8 +12,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Upgrade pip and install Python dependencies
+# Use older pydantic version with better wheel support
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --only-binary :all: pydantic pydantic-core pydantic-settings && \
+    pip install --no-cache-dir pydantic==2.3.0 pydantic-core==2.6.3 pydantic-settings==2.0.3 && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
