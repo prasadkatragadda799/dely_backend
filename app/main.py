@@ -87,18 +87,24 @@ app.add_middleware(TimingMiddleware)
 # CORS Middleware
 if settings.ENVIRONMENT == "production":
     # In production, use specific origins
-    origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else []
+    origins_str = settings.ALLOWED_ORIGINS or ""
+    origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()] if origins_str else []
     if not origins:
-        logger.warning("No ALLOWED_ORIGINS set in production!")
+        logger.warning("No ALLOWED_ORIGINS set in production! Allowing all origins (not recommended)")
+        origins = ["*"]
+        allow_credentials = False  # Can't use "*" with credentials
+    else:
+        allow_credentials = True
 else:
     # In development, allow all
     origins = ["*"]
+    allow_credentials = False  # Can't use "*" with credentials
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_credentials=allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["X-Process-Time"],
 )

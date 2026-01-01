@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
-    ALLOWED_ORIGINS: str = "http://localhost:3000,https://yourdomain.com"
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174,https://yourdomain.com")
     
     # Email
     SMTP_HOST: str = "smtp.gmail.com"
