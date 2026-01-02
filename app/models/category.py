@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -12,11 +12,15 @@ class Category(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, index=True)
     slug = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
     parent_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
-    icon = Column(String(100), nullable=True)
+    icon = Column(String(100), nullable=True)  # Emoji icon (1-2 characters)
     color = Column(String(7), nullable=True)  # Hex color code
     display_order = Column(Integer, default=0, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    image = Column(String(500), nullable=True)  # Category image URL
+    meta_title = Column(String(255), nullable=True)  # SEO meta title
+    meta_description = Column(Text, nullable=True)  # SEO meta description
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     

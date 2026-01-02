@@ -22,28 +22,46 @@ from app.models.admin import Admin
 router = APIRouter()
 
 
-def build_category_tree(categories: list, parent_id: Optional[UUID] = None) -> list:
-    """Build hierarchical category tree"""
+def get_category_product_count(db: Session, category_id: UUID, include_subcategories: bool = True) -> int:
+    """Get product count for a category, including subcategories recursively"""
+    # Get direct products
+    count = db.query(func.count(Product.id)).filter(
+        Product.category_id == category_id,
+        Product.is_available == True
+    ).scalar() or 0
+    
+    if include_subcategories:
+        # Get all subcategories recursively
+        subcategories = db.query(Category.id).filter(Category.parent_id == category_id).all()
+        for subcat in subcategories:
+            count += get_category_product_count(db, subcat.id, include_subcategories=True)
+    
+    return count
+
+
+def build_category_tree(db: Session, categories: list, parent_id: Optional[UUID] = None) -> list:
+    """Build hierarchical category tree with product counts"""
     result = []
     for cat in categories:
         if cat.parent_id == parent_id:
-            # Get product count
-            product_count = len([p for p in cat.products if p.is_available]) if hasattr(cat, 'products') else 0
+            # Get product count including subcategories
+            product_count = get_category_product_count(db, cat.id, include_subcategories=True)
             
             category_data = {
-                "id": cat.id,
+                "id": str(cat.id),
                 "name": cat.name,
-                "slug": cat.slug,
+                "description": cat.description,
                 "icon": cat.icon,
                 "color": cat.color,
+                "parentId": str(cat.parent_id) if cat.parent_id else None,
                 "displayOrder": cat.display_order,
                 "isActive": cat.is_active,
+                "image": cat.image,
+                "metaTitle": cat.meta_title,
+                "metaDescription": cat.meta_description,
                 "productCount": product_count,
-                "children": build_category_tree(categories, cat.id)
+                "children": build_category_tree(db, categories, cat.id)
             }
-            
-            if cat.parent_id:
-                category_data["parentId"] = cat.parent_id
             
             result.append(category_data)
     
@@ -57,11 +75,11 @@ async def list_categories(
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """List all categories in tree structure"""
-    categories = db.query(Category).all()
+    """List all categories in hierarchical tree structure"""
+    categories = db.query(Category).order_by(Category.display_order).all()
     
-    # Build tree structure
-    tree = build_category_tree(categories, parent_id=None)
+    # Build tree structure with product counts
+    tree = build_category_tree(db, categories, parent_id=None)
     
     return ResponseModel(
         success=True,
@@ -81,44 +99,47 @@ async def get_category(
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
-    # Get product count
-    product_count = db.query(func.count(Product.id)).filter(
-        Product.category_id == category_id,
-        Product.is_available == True
-    ).scalar() or 0
-    
-    category_data = {
-        "id": category.id,
-        "name": category.name,
-        "slug": category.slug,
-        "parentId": category.parent_id,
-        "icon": category.icon,
-        "color": category.color,
-        "displayOrder": category.display_order,
-        "isActive": category.is_active,
-        "productCount": product_count,
-        "createdAt": category.created_at,
-        "updatedAt": category.updated_at
-    }
-    
-    if category.parent:
-        category_data["parent"] = {
-            "id": category.parent.id,
-            "name": category.parent.name,
-            "slug": category.parent.slug
-        }
+    # Get product count including subcategories
+    product_count = get_category_product_count(db, category_id, include_subcategories=True)
     
     # Get children
-    children = db.query(Category).filter(Category.parent_id == category_id).all()
-    category_data["children"] = [{
-        "id": c.id,
-        "name": c.name,
-        "slug": c.slug,
-        "productCount": db.query(func.count(Product.id)).filter(
-            Product.category_id == c.id,
-            Product.is_available == True
-        ).scalar() or 0
-    } for c in children]
+    children = db.query(Category).filter(Category.parent_id == category_id).order_by(Category.display_order).all()
+    children_data = []
+    for c in children:
+        child_count = get_category_product_count(db, c.id, include_subcategories=True)
+        children_data.append({
+            "id": str(c.id),
+            "name": c.name,
+            "description": c.description,
+            "icon": c.icon,
+            "color": c.color,
+            "parentId": str(c.parent_id) if c.parent_id else None,
+            "displayOrder": c.display_order,
+            "isActive": c.is_active,
+            "image": c.image,
+            "metaTitle": c.meta_title,
+            "metaDescription": c.meta_description,
+            "productCount": child_count,
+            "children": []
+        })
+    
+    category_data = {
+        "id": str(category.id),
+        "name": category.name,
+        "description": category.description,
+        "icon": category.icon,
+        "color": category.color,
+        "parentId": str(category.parent_id) if category.parent_id else None,
+        "displayOrder": category.display_order,
+        "isActive": category.is_active,
+        "image": category.image,
+        "metaTitle": category.meta_title,
+        "metaDescription": category.meta_description,
+        "productCount": product_count,
+        "children": children_data,
+        "createdAt": category.created_at.isoformat() if category.created_at else None,
+        "updatedAt": category.updated_at.isoformat() if category.updated_at else None
+    }
     
     return ResponseModel(
         success=True,
@@ -134,9 +155,21 @@ async def create_category(
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Create a new category"""
+    """Create a new category or subcategory"""
+    # Check if category name already exists at the same parent level
+    existing = db.query(Category).filter(
+        Category.name == category_data.name,
+        Category.parent_id == category_data.parent_id
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Category name already exists at this level"
+        )
+    
     # Generate slug if not provided
-    slug = category_data.slug or generate_slug(category_data.name)
+    slug = generate_slug(category_data.name)
     
     # Ensure slug is unique
     existing_slugs = [c.slug for c in db.query(Category.slug).all()]
@@ -147,18 +180,21 @@ async def create_category(
         parent = db.query(Category).filter(Category.id == category_data.parent_id).first()
         if not parent:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parent category not found"
             )
     
     category = Category(
         name=category_data.name,
         slug=slug,
+        description=category_data.description,
         parent_id=category_data.parent_id,
         icon=category_data.icon,
         color=category_data.color,
         display_order=category_data.display_order,
-        is_active=True
+        is_active=category_data.is_active,
+        meta_title=category_data.meta_title,
+        meta_description=category_data.meta_description
     )
     
     db.add(category)
@@ -176,9 +212,28 @@ async def create_category(
         request=request
     )
     
+    # Build response
+    category_response = {
+        "id": str(category.id),
+        "name": category.name,
+        "description": category.description,
+        "icon": category.icon,
+        "color": category.color,
+        "parentId": str(category.parent_id) if category.parent_id else None,
+        "displayOrder": category.display_order,
+        "isActive": category.is_active,
+        "image": category.image,
+        "metaTitle": category.meta_title,
+        "metaDescription": category.meta_description,
+        "productCount": 0,
+        "children": [],
+        "createdAt": category.created_at.isoformat() if category.created_at else None,
+        "updatedAt": category.updated_at.isoformat() if category.updated_at else None
+    }
+    
     return ResponseModel(
         success=True,
-        data=AdminCategoryResponse.model_validate(category),
+        data=category_response,
         message="Category created successfully"
     )
 
@@ -191,24 +246,38 @@ async def update_category(
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Update a category"""
+    """Update an existing category"""
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    
+    # Check name uniqueness if name is being updated
+    if category_data.name and category_data.name != category.name:
+        existing = db.query(Category).filter(
+            Category.name == category_data.name,
+            Category.parent_id == category.parent_id,
+            Category.id != category_id
+        ).first()
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Category name already exists at this level"
+            )
     
     # Prevent circular parent reference
     if category_data.parent_id == category_id:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Category cannot be its own parent"
         )
     
     # Validate parent_id if being updated
-    if category_data.parent_id and category_data.parent_id != category.parent_id:
+    if category_data.parent_id is not None and category_data.parent_id != category.parent_id:
         parent = db.query(Category).filter(Category.id == category_data.parent_id).first()
         if not parent:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parent category not found"
             )
         
@@ -218,19 +287,12 @@ async def update_category(
         while current_parent_id:
             if current_parent_id in visited:
                 raise HTTPException(
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Circular reference detected in category hierarchy"
                 )
             visited.add(current_parent_id)
             parent_cat = db.query(Category).filter(Category.id == current_parent_id).first()
             current_parent_id = parent_cat.parent_id if parent_cat else None
-    
-    # Handle slug update
-    if category_data.slug and category_data.slug != category.slug:
-        existing_slugs = [c.slug for c in db.query(Category.slug).filter(
-            Category.id != category_id
-        ).all()]
-        category_data.slug = make_unique_slug(category_data.slug, existing_slugs)
     
     # Update fields
     update_data = category_data.model_dump(exclude_unset=True)
@@ -240,6 +302,30 @@ async def update_category(
     
     db.commit()
     db.refresh(category)
+    
+    # Get product count
+    product_count = get_category_product_count(db, category_id, include_subcategories=True)
+    
+    # Get children
+    children = db.query(Category).filter(Category.parent_id == category_id).order_by(Category.display_order).all()
+    children_data = []
+    for c in children:
+        child_count = get_category_product_count(db, c.id, include_subcategories=True)
+        children_data.append({
+            "id": str(c.id),
+            "name": c.name,
+            "description": c.description,
+            "icon": c.icon,
+            "color": c.color,
+            "parentId": str(c.parent_id) if c.parent_id else None,
+            "displayOrder": c.display_order,
+            "isActive": c.is_active,
+            "image": c.image,
+            "metaTitle": c.meta_title,
+            "metaDescription": c.meta_description,
+            "productCount": child_count,
+            "children": []
+        })
     
     # Log activity
     log_admin_activity(
@@ -252,9 +338,27 @@ async def update_category(
         request=request
     )
     
+    # Build response
+    category_response = {
+        "id": str(category.id),
+        "name": category.name,
+        "description": category.description,
+        "icon": category.icon,
+        "color": category.color,
+        "parentId": str(category.parent_id) if category.parent_id else None,
+        "displayOrder": category.display_order,
+        "isActive": category.is_active,
+        "image": category.image,
+        "metaTitle": category.meta_title,
+        "metaDescription": category.meta_description,
+        "productCount": product_count,
+        "children": children_data,
+        "updatedAt": category.updated_at.isoformat() if category.updated_at else None
+    }
+    
     return ResponseModel(
         success=True,
-        data=AdminCategoryResponse.model_validate(category),
+        data=category_response,
         message="Category updated successfully"
     )
 
@@ -269,7 +373,7 @@ async def delete_category(
     """Delete a category"""
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
-        raise HTTPException(status_code=404, detail="Category not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     
     # Check if category has children
     children_count = db.query(func.count(Category.id)).filter(
@@ -278,18 +382,16 @@ async def delete_category(
     
     if children_count > 0:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete category with child categories. Please delete or move children first."
         )
     
-    # Check if category has products
-    products_count = db.query(func.count(Product.id)).filter(
-        Product.category_id == category_id
-    ).scalar() or 0
+    # Check if category has products (including subcategories)
+    products_count = get_category_product_count(db, category_id, include_subcategories=True)
     
     if products_count > 0:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete category with products. Please remove or reassign products first."
         )
     
@@ -310,6 +412,7 @@ async def delete_category(
     
     return ResponseModel(
         success=True,
+        data=None,
         message="Category deleted successfully"
     )
 
