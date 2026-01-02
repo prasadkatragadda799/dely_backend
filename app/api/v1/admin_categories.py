@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 from uuid import UUID
+import logging
 from app.database import get_db
 from app.schemas.admin_category import (
     AdminCategoryCreate, AdminCategoryUpdate, AdminCategoryResponse,
@@ -20,53 +21,68 @@ from app.utils.slug import generate_slug, make_unique_slug
 from app.models.admin import Admin
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_category_product_count(db: Session, category_id: UUID, include_subcategories: bool = True) -> int:
     """Get product count for a category, including subcategories recursively"""
-    # Get direct products
-    count = db.query(func.count(Product.id)).filter(
-        Product.category_id == category_id,
-        Product.is_available == True
-    ).scalar() or 0
-    
-    if include_subcategories:
-        # Get all subcategories recursively
-        subcategories = db.query(Category.id).filter(Category.parent_id == category_id).all()
-        for subcat in subcategories:
-            count += get_category_product_count(db, subcat.id, include_subcategories=True)
-    
-    return count
+    try:
+        # Get direct products
+        count = db.query(func.count(Product.id)).filter(
+            Product.category_id == category_id,
+            Product.is_available == True
+        ).scalar() or 0
+        
+        if include_subcategories:
+            # Get all subcategories recursively
+            subcategories = db.query(Category.id).filter(Category.parent_id == category_id).all()
+            for subcat in subcategories:
+                count += get_category_product_count(db, subcat.id, include_subcategories=True)
+        
+        return count
+    except Exception as e:
+        logger.error(f"Error getting product count for category {category_id}: {str(e)}")
+        return 0  # Return 0 on error to prevent breaking the entire request
 
 
 def build_category_tree(db: Session, categories: list, parent_id: Optional[UUID] = None) -> list:
     """Build hierarchical category tree with product counts"""
     result = []
-    for cat in categories:
-        if cat.parent_id == parent_id:
-            # Get product count including subcategories
-            product_count = get_category_product_count(db, cat.id, include_subcategories=True)
-            
-            category_data = {
-                "id": str(cat.id),
-                "name": cat.name,
-                "description": cat.description,
-                "icon": cat.icon,
-                "color": cat.color,
-                "parentId": str(cat.parent_id) if cat.parent_id else None,
-                "displayOrder": cat.display_order,
-                "isActive": cat.is_active,
-                "image": cat.image,
-                "metaTitle": cat.meta_title,
-                "metaDescription": cat.meta_description,
-                "productCount": product_count,
-                "children": build_category_tree(db, categories, cat.id)
-            }
-            
-            result.append(category_data)
+    try:
+        for cat in categories:
+            if cat.parent_id == parent_id:
+                # Get product count including subcategories
+                try:
+                    product_count = get_category_product_count(db, cat.id, include_subcategories=True)
+                except Exception as e:
+                    logger.error(f"Error getting product count for category {cat.id}: {str(e)}")
+                    product_count = 0
+                
+                category_data = {
+                    "id": str(cat.id),
+                    "name": cat.name,
+                    "description": getattr(cat, 'description', None),
+                    "icon": cat.icon,
+                    "color": cat.color,
+                    "parentId": str(cat.parent_id) if cat.parent_id else None,
+                    "displayOrder": cat.display_order or 0,
+                    "isActive": cat.is_active if hasattr(cat, 'is_active') else True,
+                    "image": getattr(cat, 'image', None),
+                    "metaTitle": getattr(cat, 'meta_title', None),
+                    "metaDescription": getattr(cat, 'meta_description', None),
+                    "productCount": product_count,
+                    "children": build_category_tree(db, categories, cat.id)
+                }
+                
+                result.append(category_data)
+        
+        # Sort by display_order
+        result.sort(key=lambda x: x.get("displayOrder", 0))
+    except Exception as e:
+        logger.error(f"Error building category tree: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
     
-    # Sort by display_order
-    result.sort(key=lambda x: x["displayOrder"])
     return result
 
 
@@ -76,16 +92,24 @@ async def list_categories(
     db: Session = Depends(get_db)
 ):
     """List all categories in hierarchical tree structure"""
-    categories = db.query(Category).order_by(Category.display_order).all()
-    
-    # Build tree structure with product counts
-    tree = build_category_tree(db, categories, parent_id=None)
-    
-    return ResponseModel(
-        success=True,
-        data=tree,
-        message="Categories retrieved successfully"
-    )
+    try:
+        categories = db.query(Category).order_by(Category.display_order).all()
+        
+        # Build tree structure with product counts
+        tree = build_category_tree(db, categories, parent_id=None)
+        
+        return ResponseModel(
+            success=True,
+            data=tree,
+            message="Categories retrieved successfully"
+        )
+    except Exception as e:
+        import traceback
+        logger.error(f"Error listing categories: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving categories: {str(e)}"
+        )
 
 
 @router.get("/{category_id}", response_model=ResponseModel)
@@ -126,15 +150,15 @@ async def get_category(
     category_data = {
         "id": str(category.id),
         "name": category.name,
-        "description": category.description,
+        "description": getattr(category, 'description', None),
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
-        "image": category.image,
-        "metaTitle": category.meta_title,
-        "metaDescription": category.meta_description,
+        "image": getattr(category, 'image', None),
+        "metaTitle": getattr(category, 'meta_title', None),
+        "metaDescription": getattr(category, 'meta_description', None),
         "productCount": product_count,
         "children": children_data,
         "createdAt": category.created_at.isoformat() if category.created_at else None,
@@ -216,15 +240,15 @@ async def create_category(
     category_response = {
         "id": str(category.id),
         "name": category.name,
-        "description": category.description,
+        "description": getattr(category, 'description', None),
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
-        "image": category.image,
-        "metaTitle": category.meta_title,
-        "metaDescription": category.meta_description,
+        "image": getattr(category, 'image', None),
+        "metaTitle": getattr(category, 'meta_title', None),
+        "metaDescription": getattr(category, 'meta_description', None),
         "productCount": 0,
         "children": [],
         "createdAt": category.created_at.isoformat() if category.created_at else None,
@@ -342,15 +366,15 @@ async def update_category(
     category_response = {
         "id": str(category.id),
         "name": category.name,
-        "description": category.description,
+        "description": getattr(category, 'description', None),
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
-        "image": category.image,
-        "metaTitle": category.meta_title,
-        "metaDescription": category.meta_description,
+        "image": getattr(category, 'image', None),
+        "metaTitle": getattr(category, 'meta_title', None),
+        "metaDescription": getattr(category, 'meta_description', None),
         "productCount": product_count,
         "children": children_data,
         "updatedAt": category.updated_at.isoformat() if category.updated_at else None

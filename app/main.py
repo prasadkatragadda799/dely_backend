@@ -85,20 +85,19 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(TimingMiddleware)
 
 # CORS Middleware
-if settings.ENVIRONMENT == "production":
-    # In production, use specific origins
-    origins_str = settings.ALLOWED_ORIGINS or ""
-    origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()] if origins_str else []
-    if not origins:
-        logger.warning("No ALLOWED_ORIGINS set in production! Allowing all origins (not recommended)")
-        origins = ["*"]
-        allow_credentials = False  # Can't use "*" with credentials
-    else:
-        allow_credentials = True
-else:
-    # In development, allow all
+# Always check ALLOWED_ORIGINS first, regardless of environment
+origins_str = settings.ALLOWED_ORIGINS or ""
+origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()] if origins_str else []
+
+# If no origins specified, allow all (for development)
+if not origins:
+    logger.warning("No ALLOWED_ORIGINS set! Allowing all origins")
     origins = ["*"]
     allow_credentials = False  # Can't use "*" with credentials
+else:
+    # If specific origins are set, allow credentials
+    allow_credentials = True
+    logger.info(f"CORS: Allowing origins: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
