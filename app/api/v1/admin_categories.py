@@ -24,7 +24,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_category_product_count(db: Session, category_id: UUID, include_subcategories: bool = True) -> int:
+def get_category_product_count(db: Session, category_id: str, include_subcategories: bool = True) -> int:
     """Get product count for a category, including subcategories recursively"""
     try:
         # Get direct products
@@ -37,7 +37,7 @@ def get_category_product_count(db: Session, category_id: UUID, include_subcatego
             # Get all subcategories recursively
             subcategories = db.query(Category.id).filter(Category.parent_id == category_id).all()
             for subcat in subcategories:
-                count += get_category_product_count(db, subcat.id, include_subcategories=True)
+                count += get_category_product_count(db, str(subcat.id), include_subcategories=True)
         
         return count
     except Exception as e:
@@ -53,7 +53,7 @@ def build_category_tree(db: Session, categories: list, parent_id: Optional[UUID]
             if cat.parent_id == parent_id:
                 # Get product count including subcategories
                 try:
-                    product_count = get_category_product_count(db, cat.id, include_subcategories=True)
+                    product_count = get_category_product_count(db, str(cat.id), include_subcategories=True)
                 except Exception as e:
                     logger.error(f"Error getting product count for category {cat.id}: {str(e)}")
                     product_count = 0
@@ -119,12 +119,14 @@ async def get_category(
     db: Session = Depends(get_db)
 ):
     """Get category details"""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    # Cast UUID to string to match database column type (String(36))
+    category_id_str = str(category_id)
+    category = db.query(Category).filter(Category.id == category_id_str).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Get product count including subcategories
-    product_count = get_category_product_count(db, category_id, include_subcategories=True)
+    product_count = get_category_product_count(db, category_id_str, include_subcategories=True)
     
     # Get children
     children = db.query(Category).filter(Category.parent_id == category_id).order_by(Category.display_order).all()
@@ -201,7 +203,8 @@ async def create_category(
     
     # Validate parent_id if provided
     if category_data.parent_id:
-        parent = db.query(Category).filter(Category.id == category_data.parent_id).first()
+        parent_id_str = str(category_data.parent_id)
+        parent = db.query(Category).filter(Category.id == parent_id_str).first()
         if not parent:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -271,7 +274,9 @@ async def update_category(
     db: Session = Depends(get_db)
 ):
     """Update an existing category"""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    # Cast UUID to string to match database column type (String(36))
+    category_id_str = str(category_id)
+    category = db.query(Category).filter(Category.id == category_id_str).first()
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     
@@ -298,7 +303,8 @@ async def update_category(
     
     # Validate parent_id if being updated
     if category_data.parent_id is not None and category_data.parent_id != category.parent_id:
-        parent = db.query(Category).filter(Category.id == category_data.parent_id).first()
+        parent_id_str = str(category_data.parent_id)
+        parent = db.query(Category).filter(Category.id == parent_id_str).first()
         if not parent:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -306,8 +312,8 @@ async def update_category(
             )
         
         # Check for circular reference in hierarchy
-        current_parent_id = category_data.parent_id
-        visited = {category_id}
+        current_parent_id = parent_id_str
+        visited = {category_id_str}
         while current_parent_id:
             if current_parent_id in visited:
                 raise HTTPException(
@@ -316,7 +322,7 @@ async def update_category(
                 )
             visited.add(current_parent_id)
             parent_cat = db.query(Category).filter(Category.id == current_parent_id).first()
-            current_parent_id = parent_cat.parent_id if parent_cat else None
+            current_parent_id = str(parent_cat.parent_id) if parent_cat and parent_cat.parent_id else None
     
     # Update fields
     update_data = category_data.model_dump(exclude_unset=True)
@@ -357,7 +363,7 @@ async def update_category(
         admin_id=admin.id,
         action="category_updated",
         entity_type="category",
-        entity_id=category_id,
+        entity_id=category_id_str,
         details=update_data,
         request=request
     )
@@ -395,13 +401,15 @@ async def delete_category(
     db: Session = Depends(get_db)
 ):
     """Delete a category"""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    # Cast UUID to string to match database column type (String(36))
+    category_id_str = str(category_id)
+    category = db.query(Category).filter(Category.id == category_id_str).first()
     if not category:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
     
     # Check if category has children
     children_count = db.query(func.count(Category.id)).filter(
-        Category.parent_id == category_id
+        Category.parent_id == category_id_str
     ).scalar() or 0
     
     if children_count > 0:
@@ -411,7 +419,7 @@ async def delete_category(
         )
     
     # Check if category has products (including subcategories)
-    products_count = get_category_product_count(db, category_id, include_subcategories=True)
+    products_count = get_category_product_count(db, category_id_str, include_subcategories=True)
     
     if products_count > 0:
         raise HTTPException(
@@ -429,7 +437,7 @@ async def delete_category(
         admin_id=admin.id,
         action="category_deleted",
         entity_type="category",
-        entity_id=category_id,
+        entity_id=category_id_str,
         details={"name": category_name},
         request=request
     )
@@ -450,7 +458,7 @@ async def reorder_categories(
 ):
     """Reorder categories"""
     for item in reorder_data.categories:
-        category = db.query(Category).filter(Category.id == item.id).first()
+        category = db.query(Category).filter(Category.id == str(item.id)).first()
         if category:
             category.display_order = item.display_order
     
