@@ -45,12 +45,14 @@ def get_category_product_count(db: Session, category_id: str, include_subcategor
         return 0  # Return 0 on error to prevent breaking the entire request
 
 
-def build_category_tree(db: Session, categories: list, parent_id: Optional[UUID] = None) -> list:
+def build_category_tree(db: Session, categories: list, parent_id: Optional[str] = None) -> list:
     """Build hierarchical category tree with product counts"""
     result = []
     try:
         for cat in categories:
-            if cat.parent_id == parent_id:
+            # Compare as strings (both are now strings)
+            cat_parent_id = str(cat.parent_id) if cat.parent_id else None
+            if cat_parent_id == parent_id:
                 # Get product count including subcategories
                 try:
                     product_count = get_category_product_count(db, str(cat.id), include_subcategories=True)
@@ -71,7 +73,7 @@ def build_category_tree(db: Session, categories: list, parent_id: Optional[UUID]
                     "metaTitle": getattr(cat, 'meta_title', None),
                     "metaDescription": getattr(cat, 'meta_description', None),
                     "productCount": product_count,
-                    "children": build_category_tree(db, categories, cat.id)
+                    "children": build_category_tree(db, categories, str(cat.id))
                 }
                 
                 result.append(category_data)
@@ -285,7 +287,7 @@ async def update_category(
         existing = db.query(Category).filter(
             Category.name == category_data.name,
             Category.parent_id == category.parent_id,
-            Category.id != category_id
+            Category.id != category_id_str
         ).first()
         
         if existing:

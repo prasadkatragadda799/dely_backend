@@ -1,5 +1,4 @@
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, DateTime, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime
@@ -9,11 +8,12 @@ from app.database import Base
 class Category(Base):
     __tablename__ = "categories"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Use String(36) to match database column type (VARCHAR, not UUID)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False, index=True)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    parent_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    parent_id = Column(String(36), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     icon = Column(String(100), nullable=True)  # Emoji icon (1-2 characters)
     color = Column(String(7), nullable=True)  # Hex color code
     display_order = Column(Integer, default=0, nullable=False)
