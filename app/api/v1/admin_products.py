@@ -1,7 +1,7 @@
 """
 Admin Product Management Endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func
 from typing import Optional, List
@@ -23,8 +23,14 @@ from app.api.admin_deps import require_manager_or_above, get_current_active_admi
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
 from app.utils.pagination import paginate
+from app.api.v1.admin_upload import save_uploaded_file
+from app.config import settings
 import os
+import logging
 from datetime import datetime
+import json
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -171,51 +177,152 @@ async def get_product(
 
 @router.post("", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 async def create_product(
-    product_data: AdminProductCreate,
     request: Request,
+    # Form fields
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    categoryId: Optional[str] = Form(None),  # Frontend sends as categoryId
+    brand_id: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    mrp: Decimal = Form(...),
+    sellingPrice: Decimal = Form(...),  # Frontend sends as sellingPrice
+    stockQuantity: int = Form(0),  # Frontend sends as stockQuantity
+    minOrderQuantity: int = Form(1),  # Frontend sends as minOrderQuantity
+    unit: str = Form(...),
+    piecesPerSet: int = Form(1),  # Frontend sends as piecesPerSet
+    specifications: Optional[str] = Form(None),  # JSON string
+    isFeatured: Optional[str] = Form("false"),  # Frontend sends as isFeatured (string)
+    isAvailable: Optional[str] = Form("true"),  # Frontend sends as isAvailable (string)
+    meta_title: Optional[str] = Form(None),
+    meta_description: Optional[str] = Form(None),
+    slug: Optional[str] = Form(None),
+    # Image files
+    images: Optional[List[UploadFile]] = File(None),
+    primaryIndex: Optional[int] = Form(None),  # Index of primary image
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Create a new product"""
+    """Create a new product with form data and optional images"""
     # Validate selling price <= mrp
-    if product_data.selling_price > product_data.mrp:
+    if sellingPrice > mrp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Selling price cannot be greater than MRP"
         )
     
+    # Parse boolean fields (form data sends as strings)
+    is_featured = isFeatured.lower() in ('true', '1', 'yes') if isFeatured else False
+    is_available = isAvailable.lower() in ('true', '1', 'yes') if isAvailable else True
+    
+    # Parse JSON fields
+    specs_dict = None
+    if specifications:
+        try:
+            specs_dict = json.loads(specifications) if isinstance(specifications, str) else specifications
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON in specifications field"
+            )
+    
+    # Parse UUID fields
+    category_id_uuid = None
+    if categoryId:
+        try:
+            category_id_uuid = UUID(categoryId)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid category ID format"
+            )
+    
+    brand_id_uuid = None
+    if brand_id:
+        try:
+            brand_id_uuid = UUID(brand_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid brand ID format"
+            )
+    
+    company_id_uuid = None
+    if company_id:
+        try:
+            company_id_uuid = UUID(company_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid company ID format"
+            )
+    
     # Generate slug if not provided
-    slug = product_data.slug or generate_slug(product_data.name)
+    product_slug = slug or generate_slug(name)
     
     # Ensure slug is unique
     existing_slugs = [p.slug for p in db.query(Product.slug).all()]
-    slug = make_unique_slug(slug, existing_slugs)
+    product_slug = make_unique_slug(product_slug, existing_slugs)
     
     # Create product
     product = Product(
-        name=product_data.name,
-        slug=slug,
-        description=product_data.description,
-        brand_id=product_data.brand_id,
-        company_id=product_data.company_id,
-        category_id=product_data.category_id,
-        mrp=product_data.mrp,
-        selling_price=product_data.selling_price,
-        stock_quantity=product_data.stock_quantity,
-        min_order_quantity=product_data.min_order_quantity,
-        unit=product_data.unit,
-        pieces_per_set=product_data.pieces_per_set,
-        specifications=product_data.specifications,
-        is_featured=product_data.is_featured,
-        is_available=product_data.is_available,
-        meta_title=product_data.meta_title,
-        meta_description=product_data.meta_description,
+        name=name,
+        slug=product_slug,
+        description=description,
+        brand_id=brand_id_uuid,
+        company_id=company_id_uuid,
+        category_id=category_id_uuid,
+        mrp=mrp,
+        selling_price=sellingPrice,
+        stock_quantity=stockQuantity,
+        min_order_quantity=minOrderQuantity,
+        unit=unit,
+        pieces_per_set=piecesPerSet,
+        specifications=specs_dict,
+        is_featured=is_featured,
+        is_available=is_available,
+        meta_title=meta_title,
+        meta_description=meta_description,
         created_by=admin.id
     )
     
     db.add(product)
     db.commit()
     db.refresh(product)
+    
+    # Handle image uploads if provided
+    if images:
+        uploaded_images = []
+        max_display_order = db.query(func.max(ProductImage.display_order)).filter(
+            ProductImage.product_id == product.id
+        ).scalar() or 0
+        
+        for idx, image in enumerate(images):
+            if image.filename:  # Only process if file has a name
+                try:
+                    # Save uploaded file (it will read the file internally)
+                    image_url = save_uploaded_file(image, "product", product.id)
+                    
+                    product_image = ProductImage(
+                        product_id=product.id,
+                        image_url=image_url,
+                        display_order=max_display_order + idx + 1,
+                        is_primary=(primaryIndex is not None and idx == primaryIndex)
+                    )
+                    
+                    db.add(product_image)
+                    uploaded_images.append(product_image)
+                except Exception as e:
+                    # Log error but don't fail the entire request
+                    logger.error(f"Error uploading image {image.filename}: {str(e)}")
+        
+        # If primary is set, unset other primary images
+        if primaryIndex is not None and uploaded_images:
+            db.query(ProductImage).filter(
+                ProductImage.product_id == product.id,
+                ProductImage.id.notin_([img.id for img in uploaded_images])
+            ).update({"is_primary": False})
+        
+        db.commit()
     
     # Reload with relationships
     product = db.query(Product)\
