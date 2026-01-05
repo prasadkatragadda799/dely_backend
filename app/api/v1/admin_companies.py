@@ -1,7 +1,7 @@
 """
 Admin Companies & Brands Management Endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
@@ -17,7 +17,11 @@ from app.models.brand import Brand
 from app.models.product import Product
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
+from app.api.v1.admin_upload import save_uploaded_file
 from app.models.admin import Admin
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -102,24 +106,41 @@ async def get_company(
 
 @router.post("/companies", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 async def create_company(
-    company_data: AdminCompanyCreate,
     request: Request,
+    # Form fields
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    logo: Optional[UploadFile] = File(None),  # Logo file upload
+    logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Create a new company"""
+    """Create a new company with form data and optional logo upload"""
     # Check if company with same name exists
-    existing = db.query(Company).filter(Company.name == company_data.name).first()
+    existing = db.query(Company).filter(Company.name == name).first()
     if existing:
         raise HTTPException(
             status_code=400,
             detail="Company with this name already exists"
         )
     
+    # Handle logo upload
+    logo_url = logoUrl
+    if logo and logo.filename:
+        try:
+            # Save uploaded logo file
+            logo_url = save_uploaded_file(logo, "company")
+        except Exception as e:
+            logger.error(f"Error uploading company logo: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error uploading logo: {str(e)}"
+            )
+    
     company = Company(
-        name=company_data.name,
-        description=company_data.description,
-        logo_url=company_data.logo_url
+        name=name,
+        description=description,
+        logo_url=logo_url
     )
     
     db.add(company)
@@ -302,17 +323,56 @@ async def get_brand(
 
 @router.post("/brands", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 async def create_brand(
-    brand_data: AdminBrandCreate,
     request: Request,
+    # Form fields
+    name: str = Form(...),
+    companyId: Optional[str] = Form(None),  # Frontend sends as companyId
+    categoryId: Optional[str] = Form(None),  # Frontend sends as categoryId
+    logo: Optional[UploadFile] = File(None),  # Logo file upload
+    logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Create a new brand"""
+    """Create a new brand with form data and optional logo upload"""
+    # Parse UUID fields
+    company_id_uuid = None
+    if companyId:
+        try:
+            company_id_uuid = UUID(companyId)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid company ID format"
+            )
+    
+    category_id_uuid = None
+    if categoryId:
+        try:
+            category_id_uuid = UUID(categoryId)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid category ID format"
+            )
+    
+    # Handle logo upload
+    logo_url = logoUrl
+    if logo and logo.filename:
+        try:
+            # Save uploaded logo file
+            logo_url = save_uploaded_file(logo, "brand")
+        except Exception as e:
+            logger.error(f"Error uploading brand logo: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error uploading logo: {str(e)}"
+            )
+    
     brand = Brand(
-        name=brand_data.name,
-        company_id=brand_data.company_id,
-        category_id=brand_data.category_id,
-        logo_url=brand_data.logo_url
+        name=name,
+        company_id=company_id_uuid,
+        category_id=category_id_uuid,
+        logo_url=logo_url
     )
     
     db.add(brand)
