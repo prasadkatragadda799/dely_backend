@@ -435,68 +435,274 @@ async def create_product(
 @router.put("/{product_id}", response_model=ResponseModel)
 async def update_product(
     product_id: UUID,
-    product_data: AdminProductUpdate,
     request: Request,
+    # Form fields (all optional for partial updates)
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    categoryId: Optional[str] = Form(None),
+    brand_id: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    mrp: Optional[Decimal] = Form(None),
+    sellingPrice: Optional[Decimal] = Form(None),
+    stockQuantity: Optional[int] = Form(None),
+    minOrderQuantity: Optional[int] = Form(None),
+    unit: Optional[str] = Form(None),
+    piecesPerSet: Optional[int] = Form(None),
+    specifications: Optional[str] = Form(None),
+    isFeatured: Optional[str] = Form(None),
+    isAvailable: Optional[str] = Form(None),
+    meta_title: Optional[str] = Form(None),
+    meta_description: Optional[str] = Form(None),
+    slug: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),
+    # Image files (optional, can be single file or list)
+    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
+    primaryIndex: Optional[int] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Update a product"""
+    """Update a product via multipart/form-data (supports images and variants)"""
+    # Normalize images to a list
+    if images is None:
+        image_files: List[UploadFile] = []
+    elif isinstance(images, list):
+        image_files = images
+    else:
+        image_files = [images]
+
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
-    product_id_no_dashes = product_id_str.replace('-', '')
+    product_id_no_dashes = product_id_str.replace("-", "")
 
-    product = db.query(Product).filter(Product.id.in_([product_id_str, product_id_no_dashes])).first()
+    product = (
+        db.query(Product)
+        .options(
+            joinedload(Product.product_images),
+            joinedload(Product.variants),
+        )
+        .filter(Product.id.in_([product_id_str, product_id_no_dashes]))
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Update fields
-    update_data = product_data.model_dump(exclude_unset=True)
-    
-    # Handle slug update
-    if "slug" in update_data and update_data["slug"]:
-        existing_slugs = [p.slug for p in db.query(Product.slug).filter(~(Product.id.in_([product_id_str, product_id_no_dashes]))).all()]
-        update_data["slug"] = make_unique_slug(update_data["slug"], existing_slugs)
-    
-    # Validate price if both are being updated
-    if "mrp" in update_data and "selling_price" in update_data:
-        if update_data["selling_price"] > update_data["mrp"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Selling price cannot be greater than MRP"
-            )
-    elif "selling_price" in update_data:
-        if update_data["selling_price"] > product.mrp:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Selling price cannot be greater than MRP"
-            )
-    elif "mrp" in update_data:
-        if product.selling_price > update_data["mrp"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="MRP cannot be less than current selling price"
-            )
-    
-    # Convert camelCase to snake_case for model fields
-    field_mapping = {
-        "sellingPrice": "selling_price",
-        "stockQuantity": "stock_quantity",
-        "minOrderQuantity": "min_order_quantity",
-        "piecesPerSet": "pieces_per_set",
-        "isFeatured": "is_featured",
-        "isAvailable": "is_available",
-        "metaTitle": "meta_title",
-        "metaDescription": "meta_description"
-    }
-    
-    for key, value in update_data.items():
-        model_key = field_mapping.get(key, key)
-        if hasattr(product, model_key):
-            setattr(product, model_key, value)
-    
+
+    update_data: dict = {}
+
+    # Parse booleans
+    if isFeatured is not None:
+        is_featured = isFeatured.lower() in ("true", "1", "yes")
+        product.is_featured = is_featured
+        update_data["is_featured"] = is_featured
+    if isAvailable is not None:
+        is_available = isAvailable.lower() in ("true", "1", "yes")
+        product.is_available = is_available
+        update_data["is_available"] = is_available
+
+    # Parse JSON specifications
+    if specifications is not None:
+        if specifications == "":
+            specs_dict = None
+        else:
+            try:
+                specs_dict = json.loads(specifications)
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid JSON in specifications field",
+                )
+        product.specifications = specs_dict
+        update_data["specifications"] = specs_dict
+
+    # Validate/assign IDs (kept as strings)
+    if categoryId is not None:
+        if categoryId == "":
+            product.category_id = None
+            update_data["category_id"] = None
+        else:
+            try:
+                UUID(categoryId)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid category ID format",
+                )
+            product.category_id = categoryId
+            update_data["category_id"] = categoryId
+
+    if brand_id is not None:
+        if brand_id == "":
+            product.brand_id = None
+            update_data["brand_id"] = None
+        else:
+            try:
+                UUID(brand_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid brand ID format",
+                )
+            product.brand_id = brand_id
+            update_data["brand_id"] = brand_id
+
+    if company_id is not None:
+        if company_id == "":
+            product.company_id = None
+            update_data["company_id"] = None
+        else:
+            try:
+                UUID(company_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid company ID format",
+                )
+            product.company_id = company_id
+            update_data["company_id"] = company_id
+
+    # Simple scalar fields
+    if name is not None:
+        product.name = name
+        update_data["name"] = name
+    if description is not None:
+        product.description = description
+        update_data["description"] = description
+    if unit is not None:
+        product.unit = unit
+        update_data["unit"] = unit
+    if piecesPerSet is not None:
+        product.pieces_per_set = piecesPerSet
+        update_data["pieces_per_set"] = piecesPerSet
+    if stockQuantity is not None:
+        product.stock_quantity = stockQuantity
+        update_data["stock_quantity"] = stockQuantity
+    if minOrderQuantity is not None:
+        product.min_order_quantity = minOrderQuantity
+        update_data["min_order_quantity"] = minOrderQuantity
+    if meta_title is not None:
+        product.meta_title = meta_title
+        update_data["meta_title"] = meta_title
+    if meta_description is not None:
+        product.meta_description = meta_description
+        update_data["meta_description"] = meta_description
+
+    # Prices with validation
+    new_mrp = mrp if mrp is not None else product.mrp
+    new_selling = sellingPrice if sellingPrice is not None else product.selling_price
+    if new_mrp is not None and new_selling is not None and new_selling > new_mrp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selling price cannot be greater than MRP",
+        )
+
+    if mrp is not None:
+        product.mrp = mrp
+        update_data["mrp"] = mrp
+    if sellingPrice is not None:
+        product.selling_price = sellingPrice
+        update_data["selling_price"] = sellingPrice
+
+    # Slug handling
+    if slug is not None and slug != "":
+        existing_slugs = [
+            p.slug
+            for p in db.query(Product.slug)
+            .filter(~(Product.id.in_([product_id_str, product_id_no_dashes])))
+            .all()
+        ]
+        new_slug = make_unique_slug(slug, existing_slugs)
+        product.slug = new_slug
+        update_data["slug"] = new_slug
+
+    # Handle variants (replace existing with new list, if provided)
+    if variants is not None:
+        variants_list: List[dict] = []
+        if variants.strip():
+            try:
+                raw_variants = json.loads(variants)
+                if isinstance(raw_variants, list):
+                    variants_list = raw_variants
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid JSON in variants field",
+                )
+
+        # Delete existing variants
+        db.query(ProductVariant).filter(ProductVariant.product_id == product.id).delete()
+
+        created_variants: List[ProductVariant] = []
+        for v in variants_list:
+            try:
+                variant = ProductVariant(
+                    product_id=product.id,
+                    hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    set_pcs=v.get("setPieces") or v.get("set_pcs"),
+                    weight=v.get("weight"),
+                    mrp=v.get("mrp"),
+                    special_price=v.get("specialPrice") or v.get("special_price"),
+                    free_item=v.get("freeItem") or v.get("free_item"),
+                )
+                db.add(variant)
+                created_variants.append(variant)
+            except Exception as e:
+                logger.error(
+                    f"Error updating product variant for product {product.id}: {str(e)}"
+                )
+
+        # Optionally sync main product price from first variant
+        if created_variants:
+            first = created_variants[0]
+            try:
+                if first.mrp is not None:
+                    product.mrp = first.mrp
+                    update_data["mrp"] = first.mrp
+                if first.special_price is not None:
+                    product.selling_price = first.special_price
+                    update_data["selling_price"] = first.special_price
+            except Exception as e:
+                logger.error(
+                    f"Error syncing product price from variants for product {product.id}: {str(e)}"
+                )
+
     db.commit()
     db.refresh(product)
-    
+
+    # Handle image uploads if provided
+    if image_files:
+        uploaded_images = []
+        max_display_order = (
+            db.query(func.max(ProductImage.display_order))
+            .filter(ProductImage.product_id == product.id)
+            .scalar()
+            or 0
+        )
+
+        for idx, image in enumerate(image_files):
+            if image.filename:
+                try:
+                    image_url = save_uploaded_file(image, "product", product.id, request)
+                    product_image = ProductImage(
+                        product_id=product.id,
+                        image_url=image_url,
+                        display_order=max_display_order + idx + 1,
+                        is_primary=(primaryIndex is not None and idx == primaryIndex),
+                    )
+                    db.add(product_image)
+                    uploaded_images.append(product_image)
+                except Exception as e:
+                    logger.error(
+                        f"Error uploading image {image.filename} during product update: {str(e)}"
+                    )
+
+        if primaryIndex is not None and uploaded_images:
+            db.query(ProductImage).filter(
+                ProductImage.product_id == product.id,
+                ProductImage.id.notin_([img.id for img in uploaded_images]),
+            ).update({"is_primary": False})
+
+        db.commit()
+        db.refresh(product)
+
     # Log activity
     log_admin_activity(
         db=db,
@@ -505,13 +711,13 @@ async def update_product(
         entity_type="product",
         entity_id=product.id,
         details=update_data,
-        request=request
+        request=request,
     )
-    
+
     return ResponseModel(
         success=True,
         data=AdminProductResponse.model_validate(product),
-        message="Product updated successfully"
+        message="Product updated successfully",
     )
 
 
