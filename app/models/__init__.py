@@ -15,6 +15,7 @@ from app.models.product_image import ProductImage
 from app.models.order_status_history import OrderStatusHistory
 from app.models.admin_activity_log import AdminActivityLog
 from app.models.kyc_document import KYCDocument
+from app.models.product_variant import ProductVariant
 
 __all__ = [
     "User",
@@ -34,6 +35,7 @@ __all__ = [
     "ProductImage",
     "OrderStatusHistory",
     "AdminActivityLog",
-    "KYCDocument"
+    "KYCDocument",
+    "ProductVariant"
 ]
 

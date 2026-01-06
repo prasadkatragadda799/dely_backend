@@ -64,6 +64,19 @@ class ProductImageResponse(BaseModel):
         from_attributes = True
 
 
+class AdminProductVariantResponse(BaseModel):
+    id: UUID
+    hsnCode: Optional[str] = None
+    setPieces: Optional[str] = None
+    weight: Optional[str] = None
+    mrp: Optional[Decimal] = None
+    specialPrice: Optional[Decimal] = None
+    freeItem: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class AdminProductResponse(BaseModel):
     id: UUID
     name: str
@@ -82,6 +95,7 @@ class AdminProductResponse(BaseModel):
     is_featured: bool
     is_available: bool
     images: List[ProductImageResponse] = Field(default_factory=list)
+    variants: List[AdminProductVariantResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     
@@ -122,6 +136,27 @@ class AdminProductResponse(BaseModel):
             'updated_at': obj.updated_at,
         }
         
+        # Handle variants safely
+        variants: List[AdminProductVariantResponse] = []
+        if hasattr(obj, "variants") and obj.variants:
+            for v in obj.variants:
+                try:
+                    variants.append(
+                        AdminProductVariantResponse(
+                            id=UUID(str(v.id)),
+                            hsnCode=getattr(v, "hsn_code", None),
+                            setPieces=getattr(v, "set_pcs", None),
+                            weight=getattr(v, "weight", None),
+                            mrp=getattr(v, "mrp", None),
+                            specialPrice=getattr(v, "special_price", None),
+                            freeItem=getattr(v, "free_item", None),
+                        )
+                    )
+                except Exception:
+                    continue
+
+        data["variants"] = variants
+
         # Handle relationships safely
         if hasattr(obj, 'brand_rel') and obj.brand_rel:
             data['brand'] = {'id': str(obj.brand_rel.id), 'name': obj.brand_rel.name}
@@ -144,6 +179,16 @@ class AdminProductResponse(BaseModel):
     @classmethod
     def validate_images(cls, v):
         """Ensure images is always a list, never None"""
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        return []
+
+    @field_validator("variants", mode="before")
+    @classmethod
+    def validate_variants(cls, v):
+        """Ensure variants is always a list, never None"""
         if v is None:
             return []
         if isinstance(v, list):

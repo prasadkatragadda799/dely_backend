@@ -106,6 +106,23 @@ def get_products(
             "createdAt": p.created_at.isoformat() if p.created_at else None
         }
         
+        # Add variants (if any)
+        if hasattr(p, "variants") and p.variants:
+            product_data["variants"] = [
+                {
+                    "id": v.id,
+                    "hsnCode": getattr(v, "hsn_code", None),
+                    "setPieces": getattr(v, "set_pcs", None),
+                    "weight": getattr(v, "weight", None),
+                    "mrp": float(v.mrp) if v.mrp is not None else None,
+                    "specialPrice": float(getattr(v, "special_price")) if getattr(v, "special_price", None) is not None else None,
+                    "freeItem": getattr(v, "free_item", None),
+                }
+                for v in p.variants
+            ]
+        else:
+            product_data["variants"] = []
+
         # Add brand information
         if p.brand_rel:
             product_data["brand"] = {
@@ -195,6 +212,23 @@ def get_product(product_id: UUID, db: Session = Depends(get_db)):
         "createdAt": product.created_at.isoformat() if product.created_at else None
     }
     
+    # Add variants
+    if hasattr(product, "variants") and product.variants:
+        product_data["variants"] = [
+            {
+                "id": v.id,
+                "hsnCode": getattr(v, "hsn_code", None),
+                "setPieces": getattr(v, "set_pcs", None),
+                "weight": getattr(v, "weight", None),
+                "mrp": float(v.mrp) if v.mrp is not None else None,
+                "specialPrice": float(getattr(v, "special_price")) if getattr(v, "special_price", None) is not None else None,
+                "freeItem": getattr(v, "free_item", None),
+            }
+            for v in product.variants
+        ]
+    else:
+        product_data["variants"] = []
+
     # Add brand
     if product.brand_rel:
         product_data["brand"] = {

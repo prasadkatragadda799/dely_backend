@@ -18,6 +18,7 @@ from app.models.brand import Brand
 from app.models.company import Company
 from app.models.category import Category
 from app.models.product_image import ProductImage
+from app.models.product_variant import ProductVariant
 from app.models.admin import Admin
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
@@ -120,6 +121,18 @@ async def list_products(
             "isFeatured": p.is_featured,
             "isAvailable": p.is_available,
             "images": [ProductImageResponse.model_validate(img) for img in p.product_images],
+            "variants": [
+                {
+                    "id": v.id,
+                    "hsnCode": getattr(v, "hsn_code", None),
+                    "setPieces": getattr(v, "set_pcs", None),
+                    "weight": getattr(v, "weight", None),
+                    "mrp": v.mrp,
+                    "specialPrice": getattr(v, "special_price", None),
+                    "freeItem": getattr(v, "free_item", None),
+                }
+                for v in getattr(p, "variants", []) or []
+            ],
             "createdAt": p.created_at,
             "updatedAt": p.updated_at
         }
@@ -201,6 +214,7 @@ async def create_product(
     meta_title: Optional[str] = Form(None),
     meta_description: Optional[str] = Form(None),
     slug: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),  # JSON string array of variants
     # Image files (can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
     primaryIndex: Optional[int] = Form(None),  # Index of primary image
@@ -238,7 +252,20 @@ async def create_product(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid JSON in specifications field"
             )
-    
+
+    # Parse variants JSON (array of variant objects)
+    variants_list: List[dict] = []
+    if variants:
+        try:
+            raw_variants = json.loads(variants) if isinstance(variants, str) else variants
+            if isinstance(raw_variants, list):
+                variants_list = raw_variants
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON in variants field"
+            )
+
     # Parse/validate ID fields - keep as strings because DB uses String(36)
     category_id_str: Optional[str] = None
     if categoryId:
@@ -307,6 +334,39 @@ async def create_product(
     db.add(product)
     db.commit()
     db.refresh(product)
+
+    # Create variants if provided
+    created_variants: List[ProductVariant] = []
+    if variants_list:
+        for v in variants_list:
+            try:
+                variant = ProductVariant(
+                    product_id=product.id,
+                    hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    set_pcs=v.get("setPieces") or v.get("set_pcs"),
+                    weight=v.get("weight"),
+                    mrp=v.get("mrp"),
+                    special_price=v.get("specialPrice") or v.get("special_price"),
+                    free_item=v.get("freeItem") or v.get("free_item"),
+                )
+                db.add(variant)
+                created_variants.append(variant)
+            except Exception as e:
+                logger.error(f"Error creating product variant for product {product.id}: {str(e)}")
+
+        # Optionally sync main product price from first variant
+        if created_variants:
+            first = created_variants[0]
+            try:
+                if first.mrp is not None:
+                    product.mrp = first.mrp
+                if first.special_price is not None:
+                    product.selling_price = first.special_price
+            except Exception as e:
+                logger.error(f"Error syncing product price from variants for product {product.id}: {str(e)}")
+
+        db.commit()
+        db.refresh(product)
     
     # Handle image uploads if provided
     if image_files:

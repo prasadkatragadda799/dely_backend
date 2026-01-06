@@ -53,6 +53,7 @@ class Product(Base):
     category = relationship("Category", back_populates="products")
     creator = relationship("Admin", back_populates="created_products", foreign_keys=[created_by])
     product_images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.display_order")
+    variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
     cart_items = relationship("Cart", back_populates="product", cascade="all, delete-orphan")
     order_items = relationship("OrderItem", back_populates="product")
     wishlists = relationship("Wishlist", back_populates="product", cascade="all, delete-orphan")
