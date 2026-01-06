@@ -3,7 +3,7 @@ Admin Companies & Brands Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, cast, String
 from typing import Optional
 from uuid import UUID
 from app.database import get_db
@@ -39,13 +39,15 @@ async def list_companies(
     company_list = []
     for company in companies:
         # Get product count
+        # Product.company_id is UUID type in model, but DB has String(36)
+        # Use cast to handle type mismatch
         product_count = db.query(func.count(Product.id)).filter(
-            Product.company_id == company.id
+            cast(Product.company_id, String) == str(company.id)
         ).scalar() or 0
         
-        # Get brand count
+        # Get brand count (Brand.company_id is already String(36))
         brand_count = db.query(func.count(Brand.id)).filter(
-            Brand.company_id == company.id
+            Brand.company_id == str(company.id)
         ).scalar() or 0
         
         company_list.append({
@@ -73,17 +75,35 @@ async def get_company(
     db: Session = Depends(get_db)
 ):
     """Get company details"""
-    company = db.query(Company).filter(Company.id == company_id).first()
+    # Convert UUID to string for database query (Company.id is String(36))
+    # Database may store UUIDs with or without dashes, so try both formats
+    company_id_str = str(company_id).strip()
+    company_id_no_dashes = company_id_str.replace('-', '')
+    
+    # Try with dashes first (in case database has dashes)
+    company = db.query(Company).filter(Company.id == company_id_str).first()
+    
+    # If not found, try without dashes
     if not company:
+        company = db.query(Company).filter(Company.id == company_id_no_dashes).first()
+    
+    if not company:
+        # Log for debugging - check what IDs actually exist
+        all_companies = db.query(Company.id, Company.name).all()
+        logger.warning(f"Company not found with ID: {company_id_str} (also tried: {company_id_no_dashes})")
+        logger.debug(f"Available companies: {[(str(c.id), c.name) for c in all_companies[:5]]}")
         raise HTTPException(status_code=404, detail="Company not found")
     
     # Get counts
+    # Product.company_id is UUID type in model, but DB has String(36)
+    # Use cast to handle type mismatch
     product_count = db.query(func.count(Product.id)).filter(
-        Product.company_id == company.id
+        cast(Product.company_id, String) == str(company.id)
     ).scalar() or 0
     
+    # Brand.company_id is already String(36)
     brand_count = db.query(func.count(Brand.id)).filter(
-        Brand.company_id == company.id
+        Brand.company_id == str(company.id)
     ).scalar() or 0
     
     company_data = {
@@ -116,12 +136,15 @@ async def create_company(
     db: Session = Depends(get_db)
 ):
     """Create a new company with form data and optional logo upload"""
-    # Check if company with same name exists
-    existing = db.query(Company).filter(Company.name == name).first()
+    # Check if company with same name exists (case-insensitive, trimmed)
+    name_trimmed = name.strip()
+    existing = db.query(Company).filter(
+        func.lower(Company.name) == func.lower(name_trimmed)
+    ).first()
     if existing:
         raise HTTPException(
             status_code=400,
-            detail="Company with this name already exists"
+            detail=f"Company with this name already exists: {existing.name}"
         )
     
     # Handle logo upload
@@ -129,7 +152,7 @@ async def create_company(
     if logo and logo.filename:
         try:
             # Save uploaded logo file
-            logo_url = save_uploaded_file(logo, "company")
+            logo_url = save_uploaded_file(logo, "company", None, request)
         except Exception as e:
             logger.error(f"Error uploading company logo: {str(e)}")
             raise HTTPException(
@@ -148,12 +171,18 @@ async def create_company(
     db.refresh(company)
     
     # Log activity
+    # Convert company.id (String) to UUID for entity_id
+    try:
+        entity_id_uuid = UUID(company.id) if company.id else None
+    except (ValueError, AttributeError):
+        entity_id_uuid = None
+    
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="company_created",
         entity_type="company",
-        entity_id=company.id,
+        entity_id=entity_id_uuid,
         details={"name": company.name},
         request=request
     )
@@ -174,7 +203,18 @@ async def update_company(
     db: Session = Depends(get_db)
 ):
     """Update a company"""
-    company = db.query(Company).filter(Company.id == company_id).first()
+    # Convert UUID to string for database query (Company.id is String(36))
+    # Database may store UUIDs with or without dashes, so try both formats
+    company_id_str = str(company_id).strip()
+    company_id_no_dashes = company_id_str.replace('-', '')
+    
+    # Try with dashes first (in case database has dashes)
+    company = db.query(Company).filter(Company.id == company_id_str).first()
+    
+    # If not found, try without dashes
+    if not company:
+        company = db.query(Company).filter(Company.id == company_id_no_dashes).first()
+    
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     
@@ -200,12 +240,13 @@ async def update_company(
     db.refresh(company)
     
     # Log activity
+    # company_id is already a UUID, so we can use it directly
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="company_updated",
         entity_type="company",
-        entity_id=company_id,
+        entity_id=company_id,  # This is already a UUID from the path parameter
         details=update_data,
         request=request
     )
@@ -225,24 +266,98 @@ async def delete_company(
     db: Session = Depends(get_db)
 ):
     """Delete a company"""
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-    
-    company_name = company.name
-    db.delete(company)
-    db.commit()
-    
-    # Log activity
-    log_admin_activity(
-        db=db,
-        admin_id=admin.id,
-        action="company_deleted",
-        entity_type="company",
-        entity_id=company_id,
-        details={"name": company_name},
-        request=request
-    )
+    try:
+        # Convert UUID to string for database query (Company.id is String(36))
+        # Database may store UUIDs with or without dashes, so try both formats
+        company_id_str = str(company_id).strip()
+        company_id_no_dashes = company_id_str.replace('-', '')
+        
+        # Try with dashes first (in case database has dashes)
+        company = db.query(Company).filter(Company.id == company_id_str).first()
+        
+        # If not found, try without dashes
+        if not company:
+            company = db.query(Company).filter(Company.id == company_id_no_dashes).first()
+        
+        if not company:
+            # Log for debugging
+            all_companies = db.query(Company.id, Company.name).all()
+            logger.warning(f"Company not found with ID: {company_id_str} (also tried: {company_id_no_dashes})")
+            logger.debug(f"Available companies: {[(str(c.id), c.name) for c in all_companies[:5]]}")
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        # Use the actual company ID from the database for consistency
+        actual_company_id = str(company.id)
+        
+        # Check if company has products (prevent deletion if it does)
+        # Use text() for raw SQL comparison to handle type mismatch
+        from sqlalchemy import text
+        result = db.execute(
+            text("SELECT COUNT(*) FROM products WHERE company_id = :company_id"),
+            {"company_id": actual_company_id}
+        )
+        product_count = result.scalar() or 0
+        
+        if product_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete company. It has {product_count} associated product(s). Please remove or reassign products first."
+            )
+        
+        # Check if company has brands (use actual company ID from database)
+        brand_count = db.query(Brand).filter(Brand.company_id == actual_company_id).count()
+        if brand_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete company. It has {brand_count} associated brand(s). Please remove or reassign brands first."
+            )
+        
+        # Note: offers table doesn't have company_id column in the database,
+        # so we can't check for associated offers. The relationship exists in the model
+        # but the database schema doesn't support it yet.
+        
+        company_name = company.name
+        db.delete(company)
+        db.commit()
+        
+        # Log activity
+        try:
+            # Convert company_id_str (String) to UUID for entity_id
+            try:
+                entity_id_uuid = UUID(company_id_str) if company_id_str else None
+            except (ValueError, AttributeError):
+                # If company_id is not a valid UUID format, try without dashes
+                try:
+                    entity_id_uuid = UUID(company_id_str.replace('-', '')) if company_id_str else None
+                except (ValueError, AttributeError):
+                    entity_id_uuid = None
+            
+            log_admin_activity(
+                db=db,
+                admin_id=admin.id,
+                action="company_deleted",
+                entity_type="company",
+                entity_id=entity_id_uuid,
+                details={"name": company_name},
+                request=request
+            )
+        except Exception as log_error:
+            # Don't fail the deletion if logging fails
+            logger.error(f"Error logging company deletion: {str(log_error)}")
+        
+        return ResponseModel(
+            success=True,
+            message="Company deleted successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting company: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting company: {str(e)}"
+        )
     
     return ResponseModel(
         success=True,
@@ -262,7 +377,8 @@ async def list_brands(
     query = db.query(Brand)
     
     if company_id:
-        query = query.filter(Brand.company_id == company_id)
+        # Convert UUID to string for database query (Brand.company_id is String(36))
+        query = query.filter(Brand.company_id == str(company_id))
     
     brands = query.all()
     
@@ -304,7 +420,10 @@ async def get_brand(
     db: Session = Depends(get_db)
 ):
     """Get brand details"""
-    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    # Convert UUID to string for database query (Brand.id is String(36))
+    # Database stores UUIDs WITHOUT dashes, so remove dashes from UUID
+    brand_id_str = str(brand_id).replace('-', '').strip()
+    brand = db.query(Brand).filter(Brand.id == brand_id_str).first()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
@@ -334,21 +453,25 @@ async def create_brand(
     db: Session = Depends(get_db)
 ):
     """Create a new brand with form data and optional logo upload"""
-    # Parse UUID fields
-    company_id_uuid = None
+    # Validate UUID format but keep as strings (database uses String(36))
+    company_id_str = None
     if companyId:
         try:
-            company_id_uuid = UUID(companyId)
+            # Validate UUID format but keep as string
+            UUID(companyId)  # Just for validation
+            company_id_str = companyId
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid company ID format"
             )
     
-    category_id_uuid = None
+    category_id_str = None
     if categoryId:
         try:
-            category_id_uuid = UUID(categoryId)
+            # Validate UUID format but keep as string
+            UUID(categoryId)  # Just for validation
+            category_id_str = categoryId
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -360,7 +483,7 @@ async def create_brand(
     if logo and logo.filename:
         try:
             # Save uploaded logo file
-            logo_url = save_uploaded_file(logo, "brand")
+            logo_url = save_uploaded_file(logo, "brand", None, request)
         except Exception as e:
             logger.error(f"Error uploading brand logo: {str(e)}")
             raise HTTPException(
@@ -370,8 +493,8 @@ async def create_brand(
     
     brand = Brand(
         name=name,
-        company_id=company_id_uuid,
-        category_id=category_id_uuid,
+        company_id=company_id_str,  # String(36), not UUID
+        category_id=category_id_str,  # String(36), not UUID
         logo_url=logo_url
     )
     
@@ -406,7 +529,10 @@ async def update_brand(
     db: Session = Depends(get_db)
 ):
     """Update a brand"""
-    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    # Convert UUID to string for database query (Brand.id is String(36))
+    # Database stores UUIDs WITHOUT dashes, so remove dashes from UUID
+    brand_id_str = str(brand_id).replace('-', '').strip()
+    brand = db.query(Brand).filter(Brand.id == brand_id_str).first()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
@@ -445,7 +571,10 @@ async def delete_brand(
     db: Session = Depends(get_db)
 ):
     """Delete a brand"""
-    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    # Convert UUID to string for database query (Brand.id is String(36))
+    # Database stores UUIDs WITHOUT dashes, so remove dashes from UUID
+    brand_id_str = str(brand_id).replace('-', '').strip()
+    brand = db.query(Brand).filter(Brand.id == brand_id_str).first()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     

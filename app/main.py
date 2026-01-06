@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from app.config import settings
 from app.api.v1 import (
     auth, products, companies, categories, cart, orders,
@@ -185,10 +187,45 @@ app.include_router(admin_orders.router, prefix="/admin/orders", tags=["Admin Ord
 app.include_router(admin_users.router, prefix="/admin/users", tags=["Admin Users"])
 app.include_router(admin_kyc.router, prefix="/admin/kyc", tags=["Admin KYC"])
 app.include_router(admin_companies.router, prefix="/admin", tags=["Admin Companies & Brands"])
+# Also support /api/admin prefix for frontend compatibility
+app.include_router(admin_companies.router, prefix="/api/admin", tags=["Admin Companies & Brands"])
 app.include_router(admin_categories.router, prefix="/admin/categories", tags=["Admin Categories"])
 app.include_router(admin_offers.router, prefix="/admin/offers", tags=["Admin Offers"])
 app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["Admin Analytics"])
 app.include_router(admin_upload.router, prefix="/admin/upload", tags=["Admin Upload"])
+
+# Serve uploaded files statically
+uploads_dir = Path(settings.UPLOAD_DIR)
+uploads_dir.mkdir(parents=True, exist_ok=True)
+
+@app.get("/uploads/{file_path:path}")
+async def serve_uploaded_file(file_path: str):
+    """Serve uploaded files"""
+    import mimetypes
+    file_full_path = uploads_dir / file_path
+    if file_full_path.exists() and file_full_path.is_file():
+        # Determine content type from file extension
+        content_type, _ = mimetypes.guess_type(str(file_full_path))
+        if not content_type:
+            # Default to image if we can't determine
+            if file_full_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+                content_type = 'image/jpeg' if file_full_path.suffix.lower() == '.jpg' else f'image/{file_full_path.suffix[1:].lower()}'
+            else:
+                content_type = 'application/octet-stream'
+        
+        return FileResponse(
+            file_full_path,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    else:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "File not found"}
+        )
 
 
 @app.get("/")

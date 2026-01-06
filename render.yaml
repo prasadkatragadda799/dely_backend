@@ -28,7 +28,8 @@ services:
       - key: ADMIN_ROLE
         sync: false
       - key: ALLOWED_ORIGINS
-        value: "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174,https://yourdomain.com"
+        sync: false  # Set this in Render dashboard with your actual production domains
+        # Example: "https://dely-admin.vercel.app,https://yourdomain.com"
     healthCheckPath: /health
 
 databases:

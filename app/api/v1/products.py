@@ -25,7 +25,7 @@ def get_products(
     search: Optional[str] = None,
     min_price: Optional[Decimal] = None,
     max_price: Optional[Decimal] = None,
-    sort: Optional[str] = Query("created_at", regex="^(price_asc|price_desc|name|popularity|created_at)$"),
+    sort: Optional[str] = Query("created_at", pattern="^(price_asc|price_desc|name|popularity|created_at)$"),
     featured: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):

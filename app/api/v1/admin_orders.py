@@ -30,8 +30,8 @@ async def list_orders(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     search: Optional[str] = None,
-    sort: Optional[str] = Query("created_at", regex="^(created_at|total_amount|status)$"),
-    order: Optional[str] = Query("desc", regex="^(asc|desc)$"),
+    sort: Optional[str] = Query("created_at", pattern="^(created_at|total_amount|status)$"),
+    order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):

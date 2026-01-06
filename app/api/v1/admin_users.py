@@ -24,8 +24,8 @@ async def list_users(
     search: Optional[str] = None,
     kyc_status: Optional[str] = None,
     is_active: Optional[bool] = None,
-    sort: Optional[str] = Query("created_at", regex="^(name|email|created_at)$"),
-    order: Optional[str] = Query("desc", regex="^(asc|desc)$"),
+    sort: Optional[str] = Query("created_at", pattern="^(name|email|created_at)$"),
+    order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):

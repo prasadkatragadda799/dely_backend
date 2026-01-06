@@ -43,7 +43,7 @@ def get_offers(
             "id": offer.id,
             "title": offer.title,
             "description": offer.description,
-            "imageUrl": offer.image_url or offer.image,
+            "imageUrl": offer.image,  # Use image field (image_url column doesn't exist in DB)
             "validFrom": offer.valid_from.isoformat(),
             "validTo": offer.valid_to.isoformat()
         }

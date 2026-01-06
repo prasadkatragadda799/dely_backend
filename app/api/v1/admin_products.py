@@ -43,10 +43,10 @@ async def list_products(
     category: Optional[UUID] = None,
     company: Optional[UUID] = None,
     brand: Optional[UUID] = None,
-    status: Optional[str] = Query(None, regex="^(available|unavailable|all)$"),
-    stock_status: Optional[str] = Query(None, regex="^(in_stock|low_stock|out_of_stock)$"),
-    sort: Optional[str] = Query("created_at", regex="^(name|price|stock|created_at)$"),
-    order: Optional[str] = Query("desc", regex="^(asc|desc)$"),
+    status: Optional[str] = Query(None, pattern="^(available|unavailable|all)$"),
+    stock_status: Optional[str] = Query(None, pattern="^(in_stock|low_stock|out_of_stock)$"),
+    sort: Optional[str] = Query("created_at", pattern="^(name|price|stock|created_at)$"),
+    order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -300,7 +300,7 @@ async def create_product(
             if image.filename:  # Only process if file has a name
                 try:
                     # Save uploaded file (it will read the file internally)
-                    image_url = save_uploaded_file(image, "product", product.id)
+                    image_url = save_uploaded_file(image, "product", product.id, request)
                     
                     product_image = ProductImage(
                         product_id=product.id,

@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 import os
 from functools import lru_cache
@@ -54,8 +54,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,pdf"
     
-    # CDN
-    CDN_BASE_URL: str = "https://cdn.dely.com"
+    # CDN / File Serving
+    # In development, leave empty to use request base URL automatically
+    # In production, set CDN_BASE_URL env var to your CDN URL (e.g., "https://cdn.dely.com")
+    # If not set, defaults to empty string (will use request base URL)
+    CDN_BASE_URL: str = os.getenv("CDN_BASE_URL", "")
     
     # Admin Default Credentials (for initial setup)
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
@@ -63,9 +66,11 @@ class Settings(BaseSettings):
     ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Admin")
     ADMIN_ROLE: str = os.getenv("ADMIN_ROLE", "super_admin")  # super_admin, admin, manager, support
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore"  # Ignore extra fields in .env file
+    )
 
 
 @lru_cache()

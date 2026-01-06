@@ -22,8 +22,8 @@ router = APIRouter()
 
 @router.get("", response_model=ResponseModel)
 async def list_offers(
-    type: Optional[str] = Query(None, regex="^(banner|text|company)$"),
-    status_filter: Optional[str] = Query(None, regex="^(active|inactive)$"),
+    type: Optional[str] = Query(None, pattern="^(banner|text|company)$"),
+    status_filter: Optional[str] = Query(None, pattern="^(active|inactive)$"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -53,7 +53,7 @@ async def list_offers(
             "title": offer.title,
             "type": offer.type.value,
             "description": offer.description,
-            "imageUrl": offer.image_url or offer.image,  # Support legacy field
+            "imageUrl": offer.image,  # Use image field (image_url column doesn't exist in DB)
             "validFrom": offer.valid_from,
             "validTo": offer.valid_to,
             "isActive": offer.is_active,
@@ -131,8 +131,9 @@ async def create_offer(
         title=offer_data.title,
         type=offer_data.type,
         description=offer_data.description,
-        image_url=offer_data.image_url,
-        company_id=offer_data.company_id,
+        image=offer_data.image_url,  # Map image_url from schema to image field in model
+        # Note: company_id column doesn't exist in database table yet
+        # company_id=offer_data.company_id,
         valid_from=offer_data.valid_from,
         valid_to=offer_data.valid_to,
         is_active=offer_data.is_active
@@ -195,7 +196,13 @@ async def update_offer(
     # Update fields
     update_data = offer_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        if hasattr(offer, key):
+        if key == "image_url":
+            # Map image_url from schema to image field in model
+            setattr(offer, "image", value)
+        elif key == "company_id":
+            # Skip company_id - column doesn't exist in database table yet
+            pass
+        elif hasattr(offer, key):
             setattr(offer, key, value)
     
     db.commit()

@@ -55,15 +55,39 @@ class OrderItem(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
-    product_name = Column(String(255), nullable=False)  # Snapshot at time of order
-    product_image_url = Column(String(500), nullable=True)
+    # Note: product_name and product_image_url columns don't exist in database table yet
+    # Uncomment when migration adds these columns
+    # product_name = Column(String(255), nullable=False)  # Snapshot at time of order
+    # product_image_url = Column(String(500), nullable=True)
     quantity = Column(Integer, nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)  # Price per unit at time of order
+    # Note: unit_price column doesn't exist in database table yet
+    # Use 'price' field instead (which exists in DB)
+    # unit_price = Column(Numeric(10, 2), nullable=False)  # Price per unit at time of order
     subtotal = Column(Numeric(10, 2), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Note: created_at column doesn't exist in database table yet
+    # created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
-    # Legacy field for backward compatibility
-    price = Column(Numeric(10, 2), nullable=True)  # Deprecated, use unit_price
+    # Legacy field - this exists in the database
+    price = Column(Numeric(10, 2), nullable=True)  # Price per unit at time of order
+    
+    # Properties to support code that expects unit_price
+    @property
+    def unit_price(self):
+        """Alias for price field"""
+        return self.price
+    
+    @property
+    def product_name(self):
+        """Get product name from relationship if available"""
+        return self.product.name if self.product else None
+    
+    @property
+    def product_image_url(self):
+        """Get product image URL from relationship if available"""
+        if self.product and self.product.product_images:
+            primary_image = next((img for img in self.product.product_images if img.is_primary), None)
+            return primary_image.image_url if primary_image else (self.product.product_images[0].image_url if self.product.product_images else None)
+        return None
     
     # Relationships
     order = relationship("Order", back_populates="order_items")

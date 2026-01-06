@@ -210,7 +210,7 @@ async def get_dashboard_stats(
 
 @router.get("/revenue", response_model=ResponseModel)
 async def get_revenue_analytics(
-    period: str = Query("monthly", regex="^(daily|weekly|monthly|yearly)$"),
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly|yearly)$"),
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     admin: Admin = Depends(require_manager_or_above),

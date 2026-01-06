@@ -231,12 +231,22 @@ async def create_category(
     db.refresh(category)
     
     # Log activity
+    # Convert category.id (String) to UUID for entity_id
+    try:
+        entity_id_uuid = UUID(str(category.id)) if category.id else None
+    except (ValueError, AttributeError):
+        # If category.id is not a valid UUID format, try without dashes
+        try:
+            entity_id_uuid = UUID(str(category.id).replace('-', '')) if category.id else None
+        except (ValueError, AttributeError):
+            entity_id_uuid = None
+    
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="category_created",
         entity_type="category",
-        entity_id=category.id,
+        entity_id=entity_id_uuid,
         details={"name": category.name, "slug": category.slug},
         request=request
     )
@@ -360,12 +370,22 @@ async def update_category(
         })
     
     # Log activity
+    # Convert category_id_str (String) to UUID for entity_id
+    try:
+        entity_id_uuid = UUID(category_id_str) if category_id_str else None
+    except (ValueError, AttributeError):
+        # If category_id_str is not a valid UUID format, try without dashes
+        try:
+            entity_id_uuid = UUID(category_id_str.replace('-', '')) if category_id_str else None
+        except (ValueError, AttributeError):
+            entity_id_uuid = None
+    
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="category_updated",
         entity_type="category",
-        entity_id=category_id_str,
+        entity_id=entity_id_uuid,
         details=update_data,
         request=request
     )
@@ -434,12 +454,22 @@ async def delete_category(
     db.commit()
     
     # Log activity
+    # Convert category_id_str (String) to UUID for entity_id
+    try:
+        entity_id_uuid = UUID(category_id_str) if category_id_str else None
+    except (ValueError, AttributeError):
+        # If category_id_str is not a valid UUID format, try without dashes
+        try:
+            entity_id_uuid = UUID(category_id_str.replace('-', '')) if category_id_str else None
+        except (ValueError, AttributeError):
+            entity_id_uuid = None
+    
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="category_deleted",
         entity_type="category",
-        entity_id=category_id_str,
+        entity_id=entity_id_uuid,
         details={"name": category_name},
         request=request
     )

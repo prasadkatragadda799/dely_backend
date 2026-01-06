@@ -36,7 +36,7 @@ def validate_image_file(file: UploadFile) -> tuple[str, str]:
     return file_ext, file.filename or 'image'
 
 
-def save_uploaded_file(file: UploadFile, upload_type: str, entity_id: Optional[UUID] = None) -> str:
+def save_uploaded_file(file: UploadFile, upload_type: str, entity_id: Optional[UUID] = None, request: Optional[Request] = None) -> str:
     """Save uploaded file and return URL"""
     # Validate file
     file_ext, filename = validate_image_file(file)
@@ -67,12 +67,22 @@ def save_uploaded_file(file: UploadFile, upload_type: str, entity_id: Optional[U
     with open(file_path, 'wb') as f:
         f.write(content)
     
-    # Generate URL (in production, this would be a CDN URL)
-    # For now, return relative path that can be served statically
-    if entity_id:
-        url = f"{settings.CDN_BASE_URL}/uploads/{upload_type}/{entity_id}/{unique_filename}"
+    # Generate URL
+    # In development, use request base URL. In production, use CDN
+    if settings.CDN_BASE_URL:
+        # Production: use CDN URL
+        base_url = settings.CDN_BASE_URL
+    elif request:
+        # Development: use request base URL
+        base_url = str(request.base_url).rstrip('/')
     else:
-        url = f"{settings.CDN_BASE_URL}/uploads/{upload_type}/{unique_filename}"
+        # Fallback: use localhost
+        base_url = "http://localhost:8000"
+    
+    if entity_id:
+        url = f"{base_url}/uploads/{upload_type}/{entity_id}/{unique_filename}"
+    else:
+        url = f"{base_url}/uploads/{upload_type}/{unique_filename}"
     
     return url
 
@@ -102,7 +112,7 @@ async def upload_image(
     
     try:
         # Save file
-        image_url = save_uploaded_file(file, upload_type, entity_id)
+        image_url = save_uploaded_file(file, upload_type, entity_id, request)
         
         # Get file info
         file_size = len(await file.read())
@@ -176,7 +186,7 @@ async def upload_multiple_images(
     
     for file in files:
         try:
-            image_url = save_uploaded_file(file, upload_type, entity_id)
+            image_url = save_uploaded_file(file, upload_type, entity_id, request)
             uploaded_files.append({
                 "url": image_url,
                 "thumbnailUrl": image_url,
