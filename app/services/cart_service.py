@@ -7,18 +7,22 @@ from uuid import UUID
 from decimal import Decimal
 
 
-def get_cart_summary(db: Session, user_id: UUID) -> dict:
+def get_cart_summary(db: Session, user_id: str) -> dict:
     """Calculate cart summary"""
-    cart_items = db.query(Cart).filter(Cart.user_id == user_id).all()
+    cart_items = db.query(Cart).filter(Cart.user_id == str(user_id)).all()
     
     subtotal = Decimal('0.00')
     discount = Decimal('0.00')
     
     for item in cart_items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
-            item_subtotal = product.price * item.quantity
-            item_discount = (product.original_price - product.price) * item.quantity
+            # Use selling_price (or fallback to legacy price field)
+            price = product.selling_price if product.selling_price else (product.price if hasattr(product, 'price') and product.price else Decimal('0.00'))
+            mrp = product.mrp if product.mrp else (product.original_price if hasattr(product, 'original_price') and product.original_price else price)
+            
+            item_subtotal = price * item.quantity
+            item_discount = (mrp - price) * item.quantity
             subtotal += item_subtotal
             discount += item_discount
     

@@ -25,10 +25,22 @@ def get_companies(
     offset = (page - 1) * limit
     companies = query.offset(offset).limit(limit).all()
     
+    # Format companies with logoUrl
+    company_list = []
+    for c in companies:
+        company_data = {
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "logoUrl": c.logo_url or c.logo,
+            "createdAt": c.created_at.isoformat() if c.created_at else None
+        }
+        company_list.append(company_data)
+    
     return ResponseModel(
         success=True,
         data={
-            "items": [CompanyResponse.model_validate(c) for c in companies],
+            "items": company_list,
             "pagination": paginate(companies, page, limit, total)
         }
     )
