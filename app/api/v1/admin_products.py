@@ -4,7 +4,7 @@ Admin Product Management Endpoints
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func
-from typing import Optional, List
+from typing import Optional, List, Union
 from uuid import UUID
 from decimal import Decimal
 from app.database import get_db
@@ -63,12 +63,13 @@ async def list_products(
             )
         )
     
+    # ID filters - convert UUIDs to strings for String(36) columns
     if category:
-        query = query.filter(Product.category_id == category)
+        query = query.filter(Product.category_id == str(category))
     if company:
-        query = query.filter(Product.company_id == company)
+        query = query.filter(Product.company_id == str(company))
     if brand:
-        query = query.filter(Product.brand_id == brand)
+        query = query.filter(Product.brand_id == str(brand))
     
     if status == "available":
         query = query.filter(Product.is_available == True)
@@ -155,6 +156,10 @@ async def get_product(
     db: Session = Depends(get_db)
 ):
     """Get product details"""
+    # Convert UUID to string for database query (Product.id is String(36))
+    product_id_str = str(product_id).strip()
+    product_id_no_dashes = product_id_str.replace('-', '')
+
     product = db.query(Product)\
         .options(
             joinedload(Product.brand_rel),
@@ -162,7 +167,7 @@ async def get_product(
             joinedload(Product.category),
             joinedload(Product.product_images)
         )\
-        .filter(Product.id == product_id)\
+        .filter(Product.id.in_([product_id_str, product_id_no_dashes]))\
         .first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -196,13 +201,21 @@ async def create_product(
     meta_title: Optional[str] = Form(None),
     meta_description: Optional[str] = Form(None),
     slug: Optional[str] = Form(None),
-    # Image files
-    images: Optional[List[UploadFile]] = File(None),
+    # Image files (can be single file or list)
+    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
     primaryIndex: Optional[int] = Form(None),  # Index of primary image
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
+    # Normalize images to a list
+    if images is None:
+        image_files: List[UploadFile] = []
+    elif isinstance(images, UploadFile):
+        image_files = [images]
+    else:
+        image_files = images
+
     # Validate selling price <= mrp
     if sellingPrice > mrp:
         raise HTTPException(
@@ -225,31 +238,35 @@ async def create_product(
                 detail="Invalid JSON in specifications field"
             )
     
-    # Parse UUID fields
-    category_id_uuid = None
+    # Parse/validate ID fields - keep as strings because DB uses String(36)
+    category_id_str: Optional[str] = None
     if categoryId:
         try:
-            category_id_uuid = UUID(categoryId)
+            # Validate UUID format but store as string
+            UUID(categoryId)
+            category_id_str = categoryId
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid category ID format"
             )
     
-    brand_id_uuid = None
+    brand_id_str: Optional[str] = None
     if brand_id:
         try:
-            brand_id_uuid = UUID(brand_id)
+            UUID(brand_id)
+            brand_id_str = brand_id
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid brand ID format"
             )
     
-    company_id_uuid = None
+    company_id_str: Optional[str] = None
     if company_id:
         try:
-            company_id_uuid = UUID(company_id)
+            UUID(company_id)
+            company_id_str = company_id
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -268,9 +285,9 @@ async def create_product(
         name=name,
         slug=product_slug,
         description=description,
-        brand_id=brand_id_uuid,
-        company_id=company_id_uuid,
-        category_id=category_id_uuid,
+        brand_id=brand_id_str,
+        company_id=company_id_str,
+        category_id=category_id_str,
         mrp=mrp,
         selling_price=sellingPrice,
         stock_quantity=stockQuantity,
@@ -282,7 +299,8 @@ async def create_product(
         is_available=is_available,
         meta_title=meta_title,
         meta_description=meta_description,
-        created_by=admin.id
+        # created_by column is String(36); ensure we store a string
+        created_by=str(admin.id) if admin.id is not None else None
     )
     
     db.add(product)
@@ -290,13 +308,13 @@ async def create_product(
     db.refresh(product)
     
     # Handle image uploads if provided
-    if images:
+    if image_files:
         uploaded_images = []
         max_display_order = db.query(func.max(ProductImage.display_order)).filter(
             ProductImage.product_id == product.id
         ).scalar() or 0
         
-        for idx, image in enumerate(images):
+        for idx, image in enumerate(image_files):
             if image.filename:  # Only process if file has a name
                 try:
                     # Save uploaded file (it will read the file internally)
@@ -362,7 +380,11 @@ async def update_product(
     db: Session = Depends(get_db)
 ):
     """Update a product"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Convert UUID to string for database query (Product.id is String(36))
+    product_id_str = str(product_id).strip()
+    product_id_no_dashes = product_id_str.replace('-', '')
+
+    product = db.query(Product).filter(Product.id.in_([product_id_str, product_id_no_dashes])).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -371,7 +393,7 @@ async def update_product(
     
     # Handle slug update
     if "slug" in update_data and update_data["slug"]:
-        existing_slugs = [p.slug for p in db.query(Product.slug).filter(Product.id != product_id).all()]
+        existing_slugs = [p.slug for p in db.query(Product.slug).filter(~(Product.id.in_([product_id_str, product_id_no_dashes]))).all()]
         update_data["slug"] = make_unique_slug(update_data["slug"], existing_slugs)
     
     # Validate price if both are being updated
@@ -440,7 +462,11 @@ async def delete_product(
     db: Session = Depends(get_db)
 ):
     """Delete a product"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Convert UUID to string for database query (Product.id is String(36))
+    product_id_str = str(product_id).strip()
+    product_id_no_dashes = product_id_str.replace('-', '')
+
+    product = db.query(Product).filter(Product.id.in_([product_id_str, product_id_no_dashes])).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -449,12 +475,18 @@ async def delete_product(
     db.commit()
     
     # Log activity
+    try:
+        # entity_id in admin activity log expects a UUID; convert if possible
+        entity_id_uuid = UUID(product_id_str)
+    except ValueError:
+        entity_id_uuid = None
+
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="product_deleted",
         entity_type="product",
-        entity_id=product_id,
+        entity_id=entity_id_uuid,
         details={"name": product_name},
         request=request
     )
@@ -473,7 +505,12 @@ async def bulk_update_products(
     db: Session = Depends(get_db)
 ):
     """Bulk update products"""
-    products = db.query(Product).filter(Product.id.in_(bulk_data.product_ids)).all()
+    # Convert UUID product_ids to strings for String(36) Product.id
+    product_id_strs = [str(pid).strip() for pid in bulk_data.product_ids]
+    product_id_strs_no_dashes = [pid.replace('-', '') for pid in product_id_strs]
+    all_ids = list(set(product_id_strs + product_id_strs_no_dashes))
+
+    products = db.query(Product).filter(Product.id.in_(all_ids)).all()
     
     if len(products) != len(bulk_data.product_ids):
         raise HTTPException(
