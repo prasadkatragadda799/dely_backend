@@ -1,7 +1,7 @@
 """add_product_variants_table
 
 Revision ID: aa1c2f3d9b0a
-Revises: 968dcd80709d
+Revises: 51a1c2753e8e
 Create Date: 2026-01-06 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "aa1c2f3d9b0a"
-down_revision = "968dcd80709d"
+down_revision = "51a1c2753e8e"
 branch_labels = None
 depends_on = None
 
