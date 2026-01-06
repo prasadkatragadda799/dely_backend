@@ -211,10 +211,11 @@ async def create_product(
     # Normalize images to a list
     if images is None:
         image_files: List[UploadFile] = []
-    elif isinstance(images, UploadFile):
-        image_files = [images]
-    else:
+    elif isinstance(images, list):
         image_files = images
+    else:
+        # Single file (UploadFile or similar) -> wrap in list
+        image_files = [images]
 
     # Validate selling price <= mrp
     if sellingPrice > mrp:
