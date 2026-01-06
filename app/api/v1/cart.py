@@ -68,13 +68,13 @@ def get_cart(current_user=Depends(get_current_user), db: Session = Depends(get_d
     return ResponseModel(
         success=True,
         data={
-            "items": [item.dict() for item in items],
+            "items": items,  # Already a list of dicts
             "summary": summary.dict()
         }
     )
 
 
-@router.post("/add", response_model=ResponseModel)
+@router.post("", response_model=ResponseModel)
 def add_to_cart(
     item_data: CartItemAdd,
     current_user=Depends(get_current_user),
@@ -147,22 +147,61 @@ def add_to_cart(
     if product_data.mrp and product_data.selling_price and product_data.mrp > 0:
         product_dict["discount"] = round(float(((product_data.mrp - product_data.selling_price) / product_data.mrp) * 100), 2)
     
+    # Return full cart after adding item (matching requirements)
+    cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
+    items = []
+    for cart_item in cart_items:
+        prod = db.query(Product).filter(Product.id == str(cart_item.product_id)).first()
+        if prod:
+            price = float(prod.selling_price) if prod.selling_price else (float(prod.price) if hasattr(prod, 'price') and prod.price else 0.0)
+            subtotal_val = Decimal(str(price)) * cart_item.quantity
+            
+            prod_dict = {
+                "id": prod.id,
+                "name": prod.name,
+                "brand": prod.brand_rel.name if prod.brand_rel else (prod.brand if hasattr(prod, 'brand') else ""),
+                "price": price,
+                "original_price": float(prod.mrp) if prod.mrp else price,
+                "discount": 0.0,
+                "images": [],
+                "rating": float(prod.rating) if prod.rating else 0.0,
+                "is_available": prod.is_available,
+                "is_featured": prod.is_featured
+            }
+            
+            if prod.product_images:
+                prod_dict["images"] = [{"url": img.image_url, "is_primary": img.is_primary} for img in sorted(prod.product_images, key=lambda x: x.display_order)]
+            elif hasattr(prod, 'images') and prod.images:
+                if isinstance(prod.images, list):
+                    prod_dict["images"] = [{"url": img, "is_primary": idx == 0} for idx, img in enumerate(prod.images)]
+            
+            if prod.mrp and prod.selling_price and prod.mrp > 0:
+                prod_dict["discount"] = round(float(((prod.mrp - prod.selling_price) / prod.mrp) * 100), 2)
+            
+            items.append({
+                "id": str(cart_item.id),
+                "product_id": str(cart_item.product_id),
+                "quantity": cart_item.quantity,
+                "product": prod_dict,
+                "subtotal": float(subtotal_val),
+                "created_at": cart_item.created_at.isoformat() if cart_item.created_at else None,
+                "updated_at": cart_item.updated_at.isoformat() if cart_item.updated_at else None
+            })
+    
+    summary_data = get_cart_summary(db, current_user.id)
+    summary = CartSummary(**summary_data)
+    
     return ResponseModel(
         success=True,
         data={
-            "id": str(existing_item.id),
-            "product_id": str(existing_item.product_id),
-            "quantity": existing_item.quantity,
-            "product": product_dict,
-            "subtotal": float(subtotal),
-            "created_at": existing_item.created_at.isoformat() if existing_item.created_at else None,
-            "updated_at": existing_item.updated_at.isoformat() if existing_item.updated_at else None
+            "items": items,
+            "summary": summary.dict()
         },
         message="Item added to cart"
     )
 
 
-@router.put("/update/{cart_item_id}", response_model=ResponseModel)
+@router.put("/{cart_item_id}", response_model=ResponseModel)
 def update_cart_item(
     cart_item_id: UUID,
     item_data: CartItemUpdate,
@@ -196,7 +235,7 @@ def update_cart_item(
     return ResponseModel(success=True, message="Cart item updated")
 
 
-@router.delete("/remove/{cart_item_id}", response_model=ResponseModel)
+@router.delete("/{cart_item_id}", response_model=ResponseModel)
 def remove_from_cart(
     cart_item_id: UUID,
     current_user=Depends(get_current_user),

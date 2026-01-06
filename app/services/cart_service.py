@@ -35,11 +35,15 @@ def get_cart_summary(db: Session, user_id: str) -> dict:
     # Calculate total
     total = subtotal - discount + delivery_charge + tax
     
+    # Count total items
+    item_count = sum(item.quantity for item in cart_items)
+    
     return {
         "subtotal": subtotal,
         "discount": discount,
         "delivery_charge": delivery_charge,
         "tax": tax,
-        "total": total
+        "total": total,
+        "item_count": item_count
     }
 

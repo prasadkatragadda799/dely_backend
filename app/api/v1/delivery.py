@@ -11,14 +11,14 @@ from uuid import UUID
 router = APIRouter()
 
 
-@router.get("/locations", response_model=ResponseModel)
+@router.get("", response_model=ResponseModel)
 def get_delivery_locations(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get user's delivery locations"""
     locations = db.query(DeliveryLocation).filter(
-        DeliveryLocation.user_id == current_user.id
+        DeliveryLocation.user_id == str(current_user.id)
     ).order_by(DeliveryLocation.is_default.desc(), DeliveryLocation.created_at.desc()).all()
     
     return ResponseModel(
@@ -27,7 +27,7 @@ def get_delivery_locations(
     )
 
 
-@router.post("/locations", response_model=ResponseModel, status_code=201)
+@router.post("", response_model=ResponseModel, status_code=201)
 def add_delivery_location(
     location_data: DeliveryLocationCreate,
     current_user=Depends(get_current_user),
@@ -37,11 +37,11 @@ def add_delivery_location(
     # If this is set as default, unset other defaults
     if location_data.is_default:
         db.query(DeliveryLocation).filter(
-            DeliveryLocation.user_id == current_user.id
+            DeliveryLocation.user_id == str(current_user.id)
         ).update({"is_default": False})
     
     location = DeliveryLocation(
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         address=location_data.address,
         city=location_data.city,
         state=location_data.state,
@@ -88,5 +88,70 @@ def check_delivery_availability(
             estimated_days=estimated_days,
             delivery_charge=delivery_charge
         )
+    )
+
+
+@router.put("/{location_id}", response_model=ResponseModel)
+def update_delivery_location(
+    location_id: UUID,
+    location_data: DeliveryLocationCreate,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update delivery location"""
+    location = db.query(DeliveryLocation).filter(
+        DeliveryLocation.id == str(location_id),
+        DeliveryLocation.user_id == str(current_user.id)
+    ).first()
+    
+    if not location:
+        raise HTTPException(status_code=404, detail="Delivery location not found")
+    
+    # If this is set as default, unset other defaults
+    if location_data.is_default:
+        db.query(DeliveryLocation).filter(
+            DeliveryLocation.user_id == str(current_user.id),
+            DeliveryLocation.id != str(location_id)
+        ).update({"is_default": False})
+    
+    location.address = location_data.address
+    location.city = location_data.city
+    location.state = location_data.state
+    location.pincode = location_data.pincode
+    location.landmark = location_data.landmark
+    location.type = location_data.type
+    location.is_default = location_data.is_default
+    
+    db.commit()
+    db.refresh(location)
+    
+    return ResponseModel(
+        success=True,
+        data=DeliveryLocationResponse.model_validate(location),
+        message="Delivery location updated"
+    )
+
+
+@router.delete("/{location_id}", response_model=ResponseModel)
+def delete_delivery_location(
+    location_id: UUID,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete delivery location"""
+    location = db.query(DeliveryLocation).filter(
+        DeliveryLocation.id == str(location_id),
+        DeliveryLocation.user_id == str(current_user.id)
+    ).first()
+    
+    if not location:
+        raise HTTPException(status_code=404, detail="Delivery location not found")
+    
+    db.delete(location)
+    db.commit()
+    
+    return ResponseModel(
+        success=True,
+        message="Delivery location deleted"
     )
 

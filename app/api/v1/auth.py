@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.database import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, ChangePassword
 from app.schemas.common import ResponseModel
@@ -11,6 +12,10 @@ from app.api.deps import get_current_user
 from datetime import timedelta
 from app.config import settings
 import secrets
+
+
+class RefreshTokenRequest(BaseModel):
+    refreshToken: str
 
 router = APIRouter()
 
@@ -125,9 +130,12 @@ def reset_password(token: str, new_password: str, confirm_password: str, db: Ses
 
 
 @router.post("/refresh-token", response_model=ResponseModel)
-def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
+def refresh_token(
+    request_data: RefreshTokenRequest = Body(...),
+    db: Session = Depends(get_db)
+):
     """Refresh access token"""
-    payload = decode_token(refresh_token)
+    payload = decode_token(request_data.refreshToken)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

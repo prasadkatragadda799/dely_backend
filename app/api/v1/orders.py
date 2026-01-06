@@ -11,6 +11,7 @@ from app.utils.pagination import paginate
 from uuid import UUID
 from datetime import datetime, timedelta
 from typing import Optional
+from decimal import Decimal
 
 router = APIRouter()
 
@@ -29,7 +30,7 @@ def create_order(
     # Create order
     order = Order(
         order_number=generate_order_number(),
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         status=OrderStatus.PENDING,
         delivery_address=order_data.delivery_address,
         payment_method=order_data.payment_method,
@@ -38,7 +39,7 @@ def create_order(
         discount=totals["discount"],
         delivery_charge=totals["delivery_charge"],
         tax=totals["tax"],
-        total=totals["total"]
+        total_amount=totals["total"]
     )
     db.add(order)
     db.flush()
@@ -46,18 +47,27 @@ def create_order(
     # Create order items and update stock
     order_items_data = []
     for item in order_data.items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        product = db.query(Product).filter(Product.id == str(item.product_id)).first()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
+        
+        # Use selling_price (or fallback to legacy price field)
+        price = product.selling_price if product.selling_price else (product.price if hasattr(product, 'price') and product.price else Decimal('0.00'))
+        
         order_item = OrderItem(
-            order_id=order.id,
-            product_id=item.product_id,
+            order_id=str(order.id),
+            product_id=str(item.product_id),
             quantity=item.quantity,
-            price=product.price,
-            subtotal=product.price * item.quantity
+            price=price,
+            subtotal=price * item.quantity
         )
         db.add(order_item)
         
         # Update product stock
-        product.stock -= item.quantity
+        if product.stock_quantity:
+            product.stock_quantity -= item.quantity
+        elif hasattr(product, 'stock') and product.stock:
+            product.stock -= item.quantity
         order_items_data.append(order_item)
     
     db.commit()
@@ -65,7 +75,7 @@ def create_order(
     
     # Clear cart
     from app.models.cart import Cart
-    db.query(Cart).filter(Cart.user_id == current_user.id).delete()
+    db.query(Cart).filter(Cart.user_id == str(current_user.id)).delete()
     db.commit()
     
     return ResponseModel(
@@ -79,16 +89,19 @@ def create_order(
 def get_orders(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    status_filter: Optional[str] = None,
+    status: Optional[str] = Query(None, alias="status"),  # Support both status and status_filter
+    status_filter: Optional[str] = None,  # Keep for backward compatibility
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get user's orders"""
-    query = db.query(Order).filter(Order.user_id == current_user.id)
+    query = db.query(Order).filter(Order.user_id == str(current_user.id))
     
-    if status_filter:
+    # Use status if provided, otherwise fallback to status_filter
+    status_value = status or status_filter
+    if status_value:
         try:
-            status_enum = OrderStatus(status_filter)
+            status_enum = OrderStatus(status_value)
             query = query.filter(Order.status == status_enum)
         except ValueError:
             pass
@@ -114,8 +127,8 @@ def get_order(
 ):
     """Get order details"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user.id
+        Order.id == str(order_id),
+        Order.user_id == str(current_user.id)
     ).first()
     
     if not order:
@@ -136,8 +149,8 @@ def cancel_order(
 ):
     """Cancel an order"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user.id
+        Order.id == str(order_id),
+        Order.user_id == str(current_user.id)
     ).first()
     
     if not order:
@@ -150,11 +163,14 @@ def cancel_order(
         )
     
     # Restore stock
-    order_items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
+    order_items = db.query(OrderItem).filter(OrderItem.order_id == str(order.id)).all()
     for item in order_items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
-            product.stock += item.quantity
+            if product.stock_quantity:
+                product.stock_quantity += item.quantity
+            elif hasattr(product, 'stock') and product.stock:
+                product.stock += item.quantity
     
     order.status = OrderStatus.CANCELLED
     db.commit()
@@ -170,8 +186,8 @@ def track_order(
 ):
     """Track order status"""
     order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.user_id == current_user.id
+        Order.id == str(order_id),
+        Order.user_id == str(current_user.id)
     ).first()
     
     if not order:

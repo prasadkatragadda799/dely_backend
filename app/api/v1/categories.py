@@ -35,8 +35,8 @@ def get_categories(db: Session = Depends(get_db)):
                     "slug": cat.slug,
                     "icon": cat.icon,
                     "color": cat.color,
-                    "imageUrl": None,  # Can be added later
-                    "productCount": product_count,
+                    "image_url": cat.image if hasattr(cat, 'image') and cat.image else None,
+                    "product_count": product_count,
                     "children": build_tree(cat.id)
                 }
                 result.append(category_data)

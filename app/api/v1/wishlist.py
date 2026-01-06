@@ -15,12 +15,12 @@ router = APIRouter()
 def get_wishlist(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Get user's wishlist"""
     wishlist_items = db.query(Wishlist).filter(
-        Wishlist.user_id == current_user.id
+        Wishlist.user_id == str(current_user.id)
     ).all()
     
     items = []
     for item in wishlist_items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
+        product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
             from app.schemas.product import ProductListResponse
             items.append(WishlistResponse(
@@ -33,29 +33,29 @@ def get_wishlist(current_user=Depends(get_current_user), db: Session = Depends(g
     return ResponseModel(success=True, data=items)
 
 
-@router.post("/add", response_model=ResponseModel)
+@router.post("", response_model=ResponseModel)
 def add_to_wishlist(
     wishlist_data: WishlistAdd,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Add product to wishlist"""
-    product = db.query(Product).filter(Product.id == wishlist_data.product_id).first()
+    product = db.query(Product).filter(Product.id == str(wishlist_data.product_id)).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
     # Check if already in wishlist
     existing = db.query(Wishlist).filter(
-        Wishlist.user_id == current_user.id,
-        Wishlist.product_id == wishlist_data.product_id
+        Wishlist.user_id == str(current_user.id),
+        Wishlist.product_id == str(wishlist_data.product_id)
     ).first()
     
     if existing:
         raise HTTPException(status_code=400, detail="Product already in wishlist")
     
     wishlist_item = Wishlist(
-        user_id=current_user.id,
-        product_id=wishlist_data.product_id
+        user_id=str(current_user.id),
+        product_id=str(wishlist_data.product_id)
     )
     db.add(wishlist_item)
     db.commit()
@@ -75,8 +75,8 @@ def remove_from_wishlist(
 ):
     """Remove product from wishlist"""
     wishlist_item = db.query(Wishlist).filter(
-        Wishlist.user_id == current_user.id,
-        Wishlist.product_id == product_id
+        Wishlist.user_id == str(current_user.id),
+        Wishlist.product_id == str(product_id)
     ).first()
     
     if not wishlist_item:
