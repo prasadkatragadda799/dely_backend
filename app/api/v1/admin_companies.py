@@ -197,12 +197,16 @@ async def create_company(
 @router.put("/companies/{company_id}", response_model=ResponseModel)
 async def update_company(
     company_id: UUID,
-    company_data: AdminCompanyUpdate,
     request: Request,
+    # Form fields (for compatibility with file uploads from admin panel)
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    logo: Optional[UploadFile] = File(None),  # New logo file (optional)
+    logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """Update a company"""
+    """Update a company using multipart/form-data (supports optional logo upload)"""
     # Convert UUID to string for database query (Company.id is String(36))
     # Database may store UUIDs with or without dashes, so try both formats
     company_id_str = str(company_id).strip()
@@ -218,35 +222,62 @@ async def update_company(
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     
-    # Check name uniqueness if name is being updated
-    if company_data.name and company_data.name != company.name:
+    update_data = {}
+    
+    # Handle name update with uniqueness check
+    if name is not None and name.strip() != company.name:
+        name_trimmed = name.strip()
         existing = db.query(Company).filter(
-            Company.name == company_data.name,
-            Company.id != company_id
+            func.lower(Company.name) == func.lower(name_trimmed),
+            Company.id != company.id
         ).first()
         if existing:
             raise HTTPException(
                 status_code=400,
                 detail="Company with this name already exists"
             )
+        company.name = name_trimmed
+        update_data["name"] = name_trimmed
     
-    # Update fields
-    update_data = company_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if hasattr(company, key):
-            setattr(company, key, value)
+    # Handle description update
+    if description is not None:
+        company.description = description
+        update_data["description"] = description
+    
+    # Handle logo update
+    new_logo_url = None
+    if logo and logo.filename:
+        try:
+            new_logo_url = save_uploaded_file(logo, "company", None, request)
+        except Exception as e:
+            logger.error(f"Error uploading company logo during update: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error uploading logo: {str(e)}"
+            )
+    elif logoUrl is not None:
+        new_logo_url = logoUrl
+    
+    if new_logo_url is not None:
+        company.logo_url = new_logo_url
+        update_data["logo_url"] = new_logo_url
     
     db.commit()
     db.refresh(company)
     
     # Log activity
-    # company_id is already a UUID, so we can use it directly
+    # Convert company.id (String) to UUID for entity_id if possible
+    try:
+        entity_id_uuid = UUID(str(company.id)) if company.id else None
+    except (ValueError, AttributeError):
+        entity_id_uuid = None
+    
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="company_updated",
         entity_type="company",
-        entity_id=company_id,  # This is already a UUID from the path parameter
+        entity_id=entity_id_uuid,
         details=update_data,
         request=request
     )
