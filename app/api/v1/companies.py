@@ -49,27 +49,40 @@ def get_companies(
 @router.get("/{company_id}", response_model=ResponseModel)
 def get_company(company_id: UUID, db: Session = Depends(get_db)):
     """Get company details"""
-    company = db.query(Company).filter(Company.id == company_id).first()
+    company_id_str = str(company_id)
+    company = db.query(Company).filter(Company.id == company_id_str).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     
     # Get unique brands for this company
     brands = db.query(Product.brand).filter(
-        Product.company_id == company_id
+        Product.company_id == company_id_str
     ).distinct().all()
     
     brand_list = [{"name": b[0], "count": db.query(Product).filter(
-        Product.company_id == company_id,
+        Product.company_id == company_id_str,
         Product.brand == b[0]
     ).count()} for b in brands]
     
-    company_data = CompanyResponse.model_validate(company)
+    # Get product and brand counts
+    product_count = db.query(Product).filter(Product.company_id == company_id_str).count()
+    from app.models.brand import Brand
+    brand_count = db.query(Brand).filter(Brand.company_id == company_id_str).count()
+    
+    company_data = {
+        "id": company.id,
+        "name": company.name,
+        "description": company.description,
+        "logo_url": company.logo_url or company.logo,
+        "product_count": product_count,
+        "brand_count": brand_count,
+        "created_at": company.created_at.isoformat() if company.created_at else None,
+        "updated_at": company.updated_at.isoformat() if company.updated_at else None
+    }
+    
     return ResponseModel(
         success=True,
-        data={
-            **company_data.dict(),
-            "brands": brand_list
-        }
+        data=company_data
     )
 
 
@@ -83,13 +96,13 @@ def get_hul_brands(
     if not hul:
         return ResponseModel(success=True, data=[])
     
-    query = db.query(Product.brand).filter(Product.company_id == hul.id)
+    query = db.query(Product.brand).filter(Product.company_id == str(hul.id))
     if category:
-        query = query.filter(Product.category_id == category)
+        query = query.filter(Product.category_id == str(category))
     
     brands = query.distinct().all()
     brand_list = [{"name": b[0], "count": db.query(Product).filter(
-        Product.company_id == hul.id,
+        Product.company_id == str(hul.id),
         Product.brand == b[0]
     ).count()} for b in brands]
     
@@ -108,11 +121,11 @@ def get_biscuit_brands(db: Session = Depends(get_db)):
         return ResponseModel(success=True, data=[])
     
     brands = db.query(Product.brand).filter(
-        Product.category_id == biscuit_category.id
+        Product.category_id == str(biscuit_category.id)
     ).distinct().all()
     
     brand_list = [{"name": b[0], "count": db.query(Product).filter(
-        Product.category_id == biscuit_category.id,
+        Product.category_id == str(biscuit_category.id),
         Product.brand == b[0]
     ).count()} for b in brands]
     

@@ -32,13 +32,13 @@ def get_products(
     """Get all products with filters (Mobile App API)"""
     query = db.query(Product).filter(Product.is_available == True)
     
-    # Apply filters
+    # Apply filters (convert UUIDs to strings for database queries)
     if category:
-        query = query.filter(Product.category_id == category)
+        query = query.filter(Product.category_id == str(category))
     if company:
-        query = query.filter(Product.company_id == company)
+        query = query.filter(Product.company_id == str(company))
     if brand:
-        query = query.filter(Product.brand_id == brand)
+        query = query.filter(Product.brand_id == str(brand))
     if search:
         query = query.filter(
             or_(
@@ -135,7 +135,8 @@ def get_products(
         if p.company:
             product_data["company"] = {
                 "id": p.company.id,
-                "name": p.company.name
+                "name": p.company.name,
+                "logoUrl": p.company.logo_url or p.company.logo
             }
         
         # Add category information
@@ -444,7 +445,8 @@ def get_featured_products(
         if p.company:
             product_data["company"] = {
                 "id": p.company.id,
-                "name": p.company.name
+                "name": p.company.name,
+                "logoUrl": p.company.logo_url or p.company.logo
             }
         
         # Add category information
