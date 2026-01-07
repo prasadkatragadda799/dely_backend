@@ -71,14 +71,15 @@ def get_category_products(
     db: Session = Depends(get_db)
 ):
     """Get products by category"""
-    category = db.query(Category).filter(Category.id == category_id).first()
+    category_id_str = str(category_id)
+    category = db.query(Category).filter(Category.id == category_id_str).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Get products from this category and subcategories
-    category_ids = [category_id]
-    subcategories = db.query(Category).filter(Category.parent_id == category_id).all()
-    category_ids.extend([c.id for c in subcategories])
+    category_ids = [category_id_str]
+    subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
+    category_ids.extend([str(c.id) for c in subcategories])
     
     query = db.query(Product).filter(Product.category_id.in_(category_ids))
     total = query.count()

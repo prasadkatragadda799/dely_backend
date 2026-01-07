@@ -34,7 +34,13 @@ def get_products(
     
     # Apply filters (convert UUIDs to strings for database queries)
     if category:
-        query = query.filter(Product.category_id == str(category))
+        category_id_str = str(category)
+        # Get products from this category and all subcategories
+        from app.models.category import Category
+        category_ids = [category_id_str]
+        subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
+        category_ids.extend([str(c.id) for c in subcategories])
+        query = query.filter(Product.category_id.in_(category_ids))
     if company:
         query = query.filter(Product.company_id == str(company))
     if brand:
@@ -364,9 +370,14 @@ def search_products(
     )
     
     if category:
-        query = query.filter(Product.category_id == category)
+        category_id_str = str(category)
+        # Get products from this category and all subcategories
+        category_ids = [category_id_str]
+        subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
+        category_ids.extend([str(c.id) for c in subcategories])
+        query = query.filter(Product.category_id.in_(category_ids))
     if company:
-        query = query.filter(Product.company_id == company)
+        query = query.filter(Product.company_id == str(company))
     if brand:
         query = query.filter(Product.brand.ilike(f"%{brand}%"))
     
@@ -494,9 +505,14 @@ def get_products_by_company(
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     
-    query = db.query(Product).filter(Product.company_id == company.id)
+    query = db.query(Product).filter(Product.company_id == str(company.id))
     if category:
-        query = query.filter(Product.category_id == category)
+        category_id_str = str(category)
+        # Get products from this category and all subcategories
+        category_ids = [category_id_str]
+        subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
+        category_ids.extend([str(c.id) for c in subcategories])
+        query = query.filter(Product.category_id.in_(category_ids))
     
     total = query.count()
     offset = (page - 1) * limit
@@ -522,7 +538,12 @@ def get_products_by_brand(
     """Get products by brand name"""
     query = db.query(Product).filter(Product.brand.ilike(f"%{brand_name}%"))
     if category:
-        query = query.filter(Product.category_id == category)
+        category_id_str = str(category)
+        # Get products from this category and all subcategories
+        category_ids = [category_id_str]
+        subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
+        category_ids.extend([str(c.id) for c in subcategories])
+        query = query.filter(Product.category_id.in_(category_ids))
     
     total = query.count()
     offset = (page - 1) * limit
