@@ -29,21 +29,24 @@ def get_cart_summary(db: Session, user_id: str) -> dict:
     # Calculate delivery charge (free above 1000, else 50)
     delivery_charge = Decimal('0.00') if subtotal >= 1000 else Decimal('50.00')
     
-    # Calculate tax (18% GST)
-    tax = (subtotal - discount) * Decimal('0.18')
+    # Calculate tax (18% GST on subtotal, since selling_price is already discounted)
+    tax = subtotal * Decimal('0.18')
     
     # Calculate total
-    total = subtotal - discount + delivery_charge + tax
+    # Note: selling_price is already discounted, so total = subtotal + delivery + tax
+    # We don't subtract discount again since it's already applied to selling_price
+    total = subtotal + delivery_charge + tax
     
     # Count total items
     item_count = sum(item.quantity for item in cart_items)
     
+    # Convert Decimal to float for JSON serialization
     return {
-        "subtotal": subtotal,
-        "discount": discount,
-        "delivery_charge": delivery_charge,
-        "tax": tax,
-        "total": total,
+        "subtotal": float(subtotal),
+        "discount": float(discount),
+        "delivery_charge": float(delivery_charge),
+        "tax": float(tax),
+        "total": float(total),
         "item_count": item_count
     }
 

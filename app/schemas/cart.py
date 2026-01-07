@@ -40,11 +40,11 @@ class CartItemResponse(BaseModel):
 
 
 class CartSummary(BaseModel):
-    subtotal: Decimal
-    discount: Decimal
-    delivery_charge: Decimal
-    tax: Decimal
-    total: Decimal
+    subtotal: float  # Changed from Decimal to float for JSON serialization
+    discount: float
+    delivery_charge: float
+    tax: float
+    total: float
     item_count: int = 0
 
 
