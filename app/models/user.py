@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 import uuid
@@ -14,6 +14,30 @@ class KYCStatus(str, enum.Enum):
     REJECTED = "rejected"
 
 
+class KYCStatusType(TypeDecorator):
+    """Type decorator to ensure enum values are used instead of names"""
+    impl = String
+    cache_ok = True
+    
+    def __init__(self):
+        super().__init__(50)
+    
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, KYCStatus):
+            return value.value  # Use enum value, not name
+        return str(value)
+    
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        try:
+            return KYCStatus(value)
+        except ValueError:
+            return value
+
+
 class User(Base):
     __tablename__ = "users"
     
@@ -26,7 +50,7 @@ class User(Base):
     gst_number = Column(String(15), nullable=True)
     pan_number = Column(String(10), nullable=True)
     address = Column(JSON, nullable=True)
-    kyc_status = Column(SQLEnum(KYCStatus), default=KYCStatus.NOT_VERIFIED, nullable=False)
+    kyc_status = Column(KYCStatusType(), default=KYCStatus.NOT_VERIFIED, nullable=False)
     kyc_verified_at = Column(DateTime, nullable=True)
     kyc_verified_by = Column(String(36), ForeignKey("admins.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
