@@ -13,7 +13,9 @@ from app.schemas.common import ResponseModel
 from app.schemas.admin_order import OrderStatusUpdate, OrderCancel
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.user import User
-from app.models.product import Product, ProductVariant, ProductImage
+from app.models.product import Product
+from app.models.product_variant import ProductVariant
+from app.models.product_image import ProductImage
 from app.models.order_status_history import OrderStatusHistory
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
