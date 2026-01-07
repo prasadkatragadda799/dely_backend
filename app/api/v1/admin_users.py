@@ -3,7 +3,7 @@ Admin User Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, String, cast
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel
@@ -92,11 +92,13 @@ async def list_users(
         query = query.order_by(order_by)
     elif sort in ["totalOrders", "total_orders"]:
         # Sort by total orders using subquery
+        # Note: Order.user_id is String(36), User.id is String(36), so direct comparison should work
         order_count_subq = db.query(
             Order.user_id,
             func.count(Order.id).label('order_count')
         ).group_by(Order.user_id).subquery()
         
+        # Direct join - both are String(36) so should work
         query = query.outerjoin(order_count_subq, User.id == order_count_subq.c.user_id)
         if order == "asc":
             order_by = func.coalesce(order_count_subq.c.order_count, 0).asc()
@@ -137,8 +139,8 @@ async def list_users(
             "gst_number": u.gst_number,
             "gstNumber": u.gst_number,  # Alternative field name
             "gst": u.gst_number,  # Alternative field name
-            "kyc_status": u.kyc_status.value,
-            "kycStatus": u.kyc_status.value,  # Alternative field name
+            "kyc_status": u.kyc_status.value if hasattr(u.kyc_status, 'value') else str(u.kyc_status) if u.kyc_status else "not_verified",
+            "kycStatus": u.kyc_status.value if hasattr(u.kyc_status, 'value') else str(u.kyc_status) if u.kyc_status else "not_verified",  # Alternative field name
             "is_active": u.is_active,
             "isActive": u.is_active,  # Alternative field name
             "total_orders": total_orders,

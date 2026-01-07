@@ -85,8 +85,10 @@ def submit_kyc(
     
     # Check if KYC already exists (handle UUID conversion)
     # KYC.user_id is UUID, but current_user.id is String(36)
-    # Use cast to convert UUID to string for comparison
-    existing_kyc = db.query(KYC).filter(cast(KYC.user_id, String) == str(current_user.id)).first()
+    # Use cast to convert UUID to string for comparison (same pattern as admin_companies.py)
+    existing_kyc = db.query(KYC).filter(
+        cast(KYC.user_id, String) == str(current_user.id)
+    ).first()
     
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
         raise HTTPException(status_code=400, detail="KYC already verified")
@@ -106,7 +108,7 @@ def submit_kyc(
         existing_kyc.documents = kyc_data.documents
         existing_kyc.status = KYCStatus.PENDING
         db.commit()
-        db.refresh(existing_kyc)
+        # Don't refresh - object is already updated
         kyc = existing_kyc
     else:
         # Create new KYC (handle UUID conversion - User.id is String(36), KYC.user_id is UUID)
@@ -136,17 +138,23 @@ def submit_kyc(
         )
         db.add(kyc)
         db.commit()
-        db.refresh(kyc)
+        # Don't refresh - object is already populated with ID from commit
     
     # Update user KYC status
     from app.models.user import KYCStatus as UserKYCStatus
     current_user.kyc_status = UserKYCStatus.PENDING
     db.commit()
     
+    # Convert UUID to string safely
+    kyc_id_str = str(kyc.id) if kyc.id else None
+    
+    # Convert UUID to string safely - kyc.id is already available after commit
+    kyc_id_str = str(kyc.id) if kyc.id else None
+    
     return ResponseModel(
         success=True,
         data={
-            "kyc_id": str(kyc.id),
+            "kyc_id": kyc_id_str,
             "status": kyc.status.value,
             "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None
         },
@@ -162,7 +170,9 @@ def get_kyc_status(
     """Get KYC status with all field variations"""
     # KYC.user_id is UUID, but current_user.id is String(36)
     # Use cast to convert UUID to string for comparison
-    kyc = db.query(KYC).filter(cast(KYC.user_id, String) == str(current_user.id)).first()
+    kyc = db.query(KYC).filter(
+        cast(KYC.user_id, String) == str(current_user.id)
+    ).first()
     
     kyc_status_value = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status_value == "verified"
@@ -188,7 +198,7 @@ def get_kyc_status(
             "kyc_status": kyc.status.value,
             "kycStatus": kyc.status.value,  # camelCase alternative
             "is_kyc_verified": kyc.status.value == "verified",  # Boolean alternative
-            "kyc_id": kyc.id,
+            "kyc_id": str(kyc.id) if kyc.id else None,
             "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
             "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
             "rejection_reason": kyc.rejection_reason if hasattr(kyc, 'rejection_reason') else None,
