@@ -253,7 +253,10 @@ async def get_kyc_details(
     db: Session = Depends(get_db)
 ):
     """Get KYC submission details"""
-    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    # Convert UUID to string for comparison (handles type mismatch)
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
     
@@ -336,7 +339,10 @@ async def verify_kyc(
     db: Session = Depends(get_db)
 ):
     """Verify KYC submission"""
-    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    # Convert UUID to string for comparison (handles type mismatch)
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
     
@@ -382,7 +388,10 @@ async def reject_kyc(
     db: Session = Depends(get_db)
 ):
     """Reject KYC submission"""
-    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    # Convert UUID to string for comparison (handles type mismatch)
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
     
@@ -426,7 +435,10 @@ async def get_kyc_documents(
     db: Session = Depends(get_db)
 ):
     """Get KYC documents"""
-    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    # Convert UUID to string for comparison (handles type mismatch)
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
     
