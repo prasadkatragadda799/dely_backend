@@ -12,10 +12,59 @@ router = APIRouter()
 
 @router.get("/profile", response_model=ResponseModel)
 def get_profile(current_user: User = Depends(get_current_user)):
-    """Get user profile"""
+    """Get user profile with both snake_case and camelCase fields for frontend compatibility"""
+    # Get KYC status as string
+    kyc_status = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
+    is_kyc_verified = kyc_status == "verified"
+    
+    # Extract business address details from address JSON if available
+    business_address = None
+    business_city = None
+    business_state = None
+    business_pincode = None
+    if current_user.address and isinstance(current_user.address, dict):
+        business_address = current_user.address.get("address") or current_user.address.get("business_address")
+        business_city = current_user.address.get("city") or current_user.address.get("business_city")
+        business_state = current_user.address.get("state") or current_user.address.get("business_state")
+        business_pincode = current_user.address.get("pincode") or current_user.address.get("business_pincode")
+    
+    # Build response with both snake_case and camelCase fields
+    profile_data = {
+        "id": current_user.id,
+        "name": current_user.name,
+        "full_name": current_user.name,  # Alternative field name
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "phone_number": current_user.phone,  # Alternative field name
+        "business_name": current_user.business_name,
+        "businessName": current_user.business_name,  # camelCase alternative
+        "business_type": None,  # Not in model yet, can be added to address JSON
+        "businessType": None,  # camelCase alternative
+        "gst_number": current_user.gst_number,
+        "gstNumber": current_user.gst_number,  # camelCase alternative
+        "pan_number": current_user.pan_number,
+        "panNumber": current_user.pan_number,  # camelCase alternative
+        "business_address": business_address,
+        "businessAddress": business_address,  # camelCase alternative
+        "business_city": business_city,
+        "businessCity": business_city,  # camelCase alternative
+        "business_state": business_state,
+        "businessState": business_state,  # camelCase alternative
+        "business_pincode": business_pincode,
+        "businessPincode": business_pincode,  # camelCase alternative
+        "avatar_url": None,  # Not implemented yet, can be added later
+        "avatarUrl": None,  # camelCase alternative
+        "kyc_status": kyc_status,
+        "kycStatus": kyc_status,  # camelCase alternative
+        "is_kyc_verified": is_kyc_verified,  # Boolean alternative
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None
+    }
+    
     return ResponseModel(
         success=True,
-        data=UserResponse.model_validate(current_user)
+        data=profile_data,
+        message="Profile fetched successfully"
     )
 
 
@@ -25,29 +74,133 @@ def update_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Update user profile"""
+    """Update user profile with validation"""
+    import re
+    
+    # Update name
     if user_data.name:
+        if len(user_data.name) < 2:
+            raise HTTPException(status_code=400, detail="Name must be at least 2 characters")
         current_user.name = user_data.name
-    if user_data.phone:
+    
+    # Update phone (support both phone and phone_number)
+    phone_to_update = user_data.phone or user_data.phone_number
+    if phone_to_update:
         # Check if phone already exists
         existing_user = db.query(User).filter(
-            User.phone == user_data.phone,
+            User.phone == phone_to_update,
             User.id != current_user.id
         ).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Phone number already in use")
-        current_user.phone = user_data.phone
+        current_user.phone = phone_to_update
+    
+    # Update business name
     if user_data.business_name:
+        if len(user_data.business_name) < 2:
+            raise HTTPException(status_code=400, detail="Business name must be at least 2 characters")
         current_user.business_name = user_data.business_name
+    
+    # Update GST number with validation
+    if user_data.gst_number is not None:
+        if user_data.gst_number and len(user_data.gst_number) != 15:
+            raise HTTPException(status_code=400, detail="GST number must be 15 characters")
+        # Format validation: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter
+        if user_data.gst_number and not re.match(r'^\d{2}[A-Z0-9]{10}[A-Z]\d[A-Z]$', user_data.gst_number.upper()):
+            raise HTTPException(status_code=400, detail="Invalid GST number format")
+        current_user.gst_number = user_data.gst_number.upper() if user_data.gst_number else None
+    
+    # Update PAN number with validation
+    if user_data.pan_number is not None:
+        if user_data.pan_number and len(user_data.pan_number) != 10:
+            raise HTTPException(status_code=400, detail="PAN number must be 10 characters")
+        # Format validation: 5 letters + 4 digits + 1 letter
+        if user_data.pan_number and not re.match(r'^[A-Z]{5}\d{4}[A-Z]$', user_data.pan_number.upper()):
+            raise HTTPException(status_code=400, detail="Invalid PAN number format")
+        current_user.pan_number = user_data.pan_number.upper() if user_data.pan_number else None
+    
+    # Update business address details (store in address JSON)
+    address_dict = current_user.address if current_user.address else {}
+    if user_data.business_address is not None:
+        address_dict["business_address"] = user_data.business_address
+        address_dict["address"] = user_data.business_address  # Also set legacy field
+    if user_data.business_city is not None:
+        address_dict["business_city"] = user_data.business_city
+        address_dict["city"] = user_data.business_city  # Also set legacy field
+    if user_data.business_state is not None:
+        address_dict["business_state"] = user_data.business_state
+        address_dict["state"] = user_data.business_state  # Also set legacy field
+    if user_data.business_pincode is not None:
+        if user_data.business_pincode and (len(user_data.business_pincode) != 6 or not user_data.business_pincode.isdigit()):
+            raise HTTPException(status_code=400, detail="Pincode must be exactly 6 digits")
+        address_dict["business_pincode"] = user_data.business_pincode
+        address_dict["pincode"] = user_data.business_pincode  # Also set legacy field
+    if user_data.business_type is not None:
+        if user_data.business_type not in ["Retail", "Wholesale", "Distributor"]:
+            raise HTTPException(status_code=400, detail="Business type must be Retail, Wholesale, or Distributor")
+        address_dict["business_type"] = user_data.business_type
+    
+    if address_dict:
+        current_user.address = address_dict
+    
+    # Support legacy address field
     if user_data.address:
         current_user.address = user_data.address
     
     db.commit()
     db.refresh(current_user)
     
+    # Return updated profile with all fields
+    kyc_status = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
+    is_kyc_verified = kyc_status == "verified"
+    
+    business_address = None
+    business_city = None
+    business_state = None
+    business_pincode = None
+    business_type = None
+    if current_user.address and isinstance(current_user.address, dict):
+        business_address = current_user.address.get("business_address") or current_user.address.get("address")
+        business_city = current_user.address.get("business_city") or current_user.address.get("city")
+        business_state = current_user.address.get("business_state") or current_user.address.get("state")
+        business_pincode = current_user.address.get("business_pincode") or current_user.address.get("pincode")
+        business_type = current_user.address.get("business_type")
+    
+    profile_data = {
+        "id": current_user.id,
+        "name": current_user.name,
+        "full_name": current_user.name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "phone_number": current_user.phone,
+        "business_name": current_user.business_name,
+        "businessName": current_user.business_name,
+        "business_type": business_type,
+        "businessType": business_type,
+        "gst_number": current_user.gst_number,
+        "gstNumber": current_user.gst_number,
+        "pan_number": current_user.pan_number,
+        "panNumber": current_user.pan_number,
+        "business_address": business_address,
+        "businessAddress": business_address,
+        "business_city": business_city,
+        "businessCity": business_city,
+        "business_state": business_state,
+        "businessState": business_state,
+        "business_pincode": business_pincode,
+        "businessPincode": business_pincode,
+        "avatar_url": None,
+        "avatarUrl": None,
+        "kyc_status": kyc_status,
+        "kycStatus": kyc_status,
+        "is_kyc_verified": is_kyc_verified,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+        "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None
+    }
+    
     return ResponseModel(
         success=True,
-        data=UserResponse.model_validate(current_user),
+        data=profile_data,
         message="Profile updated successfully"
     )
 

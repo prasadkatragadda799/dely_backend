@@ -22,10 +22,18 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2)
     phone: Optional[str] = None
-    business_name: Optional[str] = None
-    address: Optional[Dict[str, Any]] = None
+    phone_number: Optional[str] = None  # Alternative field name
+    business_name: Optional[str] = Field(None, min_length=2)
+    business_type: Optional[str] = None  # Retail, Wholesale, Distributor
+    gst_number: Optional[str] = Field(None, max_length=15, min_length=15)
+    pan_number: Optional[str] = Field(None, max_length=10, min_length=10)
+    business_address: Optional[str] = None
+    business_city: Optional[str] = None
+    business_state: Optional[str] = None
+    business_pincode: Optional[str] = Field(None, max_length=6, min_length=6)
+    address: Optional[Dict[str, Any]] = None  # Legacy support
 
 
 class UserResponse(BaseModel):
