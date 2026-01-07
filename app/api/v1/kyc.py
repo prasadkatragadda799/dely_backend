@@ -13,16 +13,58 @@ router = APIRouter()
 
 @router.post("/verify-gst", response_model=ResponseModel)
 def verify_gst(gst_data: GSTVerify, db: Session = Depends(get_db)):
-    """Verify GST number"""
-    gst_details = verify_gst_number(gst_data.gst_number)
+    """Verify GST number - Returns mock data for now (no authentication required)"""
+    import re
     
-    if not gst_details:
-        raise HTTPException(status_code=400, detail="Invalid GST number")
-    
-    return ResponseModel(
-        success=True,
-        data=GSTVerifyResponse(**gst_details)
-    )
+    try:
+        # Get and clean GST number
+        gst_number = (gst_data.gst_number or "").strip().upper()
+        
+        # Basic validation
+        if not gst_number:
+            raise HTTPException(
+                status_code=400, 
+                detail="GST number is required"
+            )
+        
+        if len(gst_number) != 15:
+            raise HTTPException(
+                status_code=400, 
+                detail="GST number must be exactly 15 characters"
+            )
+        
+        # Verify GST number format: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter
+        if not re.match(r'^\d{2}[A-Z0-9]{10}[A-Z]\d[A-Z]$', gst_number):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GST number format. Expected format: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter"
+            )
+        
+        # Get GST details (currently returns mock data)
+        gst_details = verify_gst_number(gst_number)
+        
+        if not gst_details:
+            raise HTTPException(
+                status_code=400, 
+                detail="Unable to verify GST number"
+            )
+        
+        return ResponseModel(
+            success=True,
+            data=GSTVerifyResponse(**gst_details),
+            message="GST number verified successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log the error for debugging
+        import traceback
+        print(f"GST Verification Error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verifying GST number: {str(e)}"
+        )
 
 
 @router.post("/submit", response_model=ResponseModel, status_code=201)
@@ -111,11 +153,25 @@ def get_kyc_status(
                 "kyc_status": kyc_status_value,
                 "kycStatus": kyc_status_value,  # camelCase alternative
                 "is_kyc_verified": is_kyc_verified,  # Boolean alternative
-            "kyc_id": None,
-            "submitted_at": None,
-            "verified_at": current_user.kyc_verified_at.isoformat() if current_user.kyc_verified_at else None,
-            "rejection_reason": None,
-            "notes": None
+                "kyc_id": None,
+                "submitted_at": None,
+                "verified_at": current_user.kyc_verified_at.isoformat() if current_user.kyc_verified_at else None,
+                "rejection_reason": None,
+                "notes": None
+            }
+        )
+    
+    return ResponseModel(
+        success=True,
+        data={
+            "kyc_status": kyc.status.value,
+            "kycStatus": kyc.status.value,  # camelCase alternative
+            "is_kyc_verified": kyc.status.value == "verified",  # Boolean alternative
+            "kyc_id": kyc.id,
+            "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
+            "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
+            "rejection_reason": kyc.rejection_reason if hasattr(kyc, 'rejection_reason') else None,
+            "notes": None  # Can be added to KYC model if needed
         }
     )
 
@@ -132,19 +188,5 @@ def skip_kyc(
     return ResponseModel(
         success=True,
         message="KYC can be completed later from your profile"
-    )
-    
-    return ResponseModel(
-        success=True,
-        data={
-            "kyc_status": kyc.status.value,
-            "kycStatus": kyc.status.value,  # camelCase alternative
-            "is_kyc_verified": kyc.status.value == "verified",  # Boolean alternative
-            "kyc_id": kyc.id,
-            "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
-            "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
-            "rejection_reason": kyc.rejection_reason if hasattr(kyc, 'rejection_reason') else None,
-            "notes": None  # Can be added to KYC model if needed
-        }
     )
 
