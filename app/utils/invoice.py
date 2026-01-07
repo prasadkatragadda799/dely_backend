@@ -1,7 +1,7 @@
 """
 Invoice generation utilities
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from decimal import Decimal
 from datetime import datetime
 from app.config import settings
