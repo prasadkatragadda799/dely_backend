@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from app.database import get_db
+from app.api.deps import get_current_user, require_kyc_verified
 from app.schemas.product import ProductResponse, ProductListResponse
 from app.schemas.common import ResponseModel, PaginatedResponse, PaginationModel
 from app.models.product import Product
@@ -27,9 +28,10 @@ def get_products(
     max_price: Optional[Decimal] = None,
     sort: Optional[str] = Query("created_at", pattern="^(price_asc|price_desc|name|popularity|created_at)$"),
     featured: Optional[bool] = None,
+    current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
-    """Get all products with filters (Mobile App API)"""
+    """Get all products with filters (Mobile App API) - Requires KYC verification"""
     query = db.query(Product).filter(Product.is_available == True)
     
     # Apply filters (convert UUIDs to strings for database queries)
@@ -184,8 +186,12 @@ def get_products(
 
 
 @router.get("/{product_id}", response_model=ResponseModel)
-def get_product(product_id: UUID, db: Session = Depends(get_db)):
-    """Get product details by ID (Mobile App API)"""
+def get_product(
+    product_id: UUID,
+    current_user = Depends(require_kyc_verified),
+    db: Session = Depends(get_db)
+):
+    """Get product details by ID (Mobile App API) - Requires KYC verification"""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -279,8 +285,12 @@ def get_product(product_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/slug/{slug}", response_model=ResponseModel)
-def get_product_by_slug(slug: str, db: Session = Depends(get_db)):
-    """Get product details by slug (Mobile App API)"""
+def get_product_by_slug(
+    slug: str,
+    current_user = Depends(require_kyc_verified),
+    db: Session = Depends(get_db)
+):
+    """Get product details by slug (Mobile App API) - Requires KYC verification"""
     product = db.query(Product).filter(Product.slug == slug).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -358,6 +368,7 @@ def search_products(
     category: Optional[UUID] = None,
     company: Optional[UUID] = None,
     brand: Optional[str] = None,
+    current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
     """Search products"""
@@ -397,9 +408,10 @@ def search_products(
 @router.get("/featured", response_model=ResponseModel)
 def get_featured_products(
     limit: int = Query(6, ge=1, le=50),
+    current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
-    """Get featured products"""
+    """Get featured products - Requires KYC verification"""
     products = db.query(Product).filter(
         Product.is_featured == True,
         Product.is_available == True
@@ -495,6 +507,7 @@ def get_featured_products(
 @router.get("/company/{company_name}", response_model=ResponseModel)
 def get_products_by_company(
     company_name: str,
+    current_user = Depends(require_kyc_verified),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     category: Optional[UUID] = None,
@@ -533,9 +546,10 @@ def get_products_by_brand(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     category: Optional[UUID] = None,
+    current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
-    """Get products by brand name"""
+    """Get products by brand name - Requires KYC verification"""
     query = db.query(Product).filter(Product.brand.ilike(f"%{brand_name}%"))
     if category:
         category_id_str = str(category)

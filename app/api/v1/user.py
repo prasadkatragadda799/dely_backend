@@ -28,6 +28,13 @@ def get_profile(current_user: User = Depends(get_current_user)):
         business_state = current_user.address.get("state") or current_user.address.get("business_state")
         business_pincode = current_user.address.get("pincode") or current_user.address.get("business_pincode")
     
+    # Get KYC submission date from KYC records
+    kyc_submitted_at = None
+    if hasattr(current_user, 'kyc_records') and current_user.kyc_records:
+        # Get the most recent KYC record
+        latest_kyc = max(current_user.kyc_records, key=lambda k: k.created_at if k.created_at else datetime.min)
+        kyc_submitted_at = latest_kyc.created_at.isoformat() if latest_kyc.created_at else None
+    
     # Build response with both snake_case and camelCase fields
     profile_data = {
         "id": current_user.id,
@@ -57,6 +64,8 @@ def get_profile(current_user: User = Depends(get_current_user)):
         "kyc_status": kyc_status,
         "kycStatus": kyc_status,  # camelCase alternative
         "is_kyc_verified": is_kyc_verified,  # Boolean alternative
+        "kyc_submitted_at": kyc_submitted_at,  # Optional: when KYC was submitted
+        "kyc_verified_at": current_user.kyc_verified_at.isoformat() if current_user.kyc_verified_at else None,  # Optional: when KYC was verified
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
         "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None
     }

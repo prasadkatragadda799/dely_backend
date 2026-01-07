@@ -41,7 +41,10 @@ def register_user(db: Session, user_data: UserCreate) -> User:
             "address": user_data.address or {}
         }
     
-    # Create user
+    # Import KYCStatus
+    from app.models.user import KYCStatus
+    
+    # Create user with kyc_status = "not_verified"
     user = User(
         name=user_data.name,
         email=user_data.email,
@@ -49,7 +52,8 @@ def register_user(db: Session, user_data: UserCreate) -> User:
         password_hash=get_password_hash(user_data.password),
         business_name=user_data.business_name,
         gst_number=user_data.gst_number,
-        address=address
+        address=address,
+        kyc_status=KYCStatus.NOT_VERIFIED  # Set to not_verified for new registrations
     )
     
     db.add(user)
@@ -59,19 +63,36 @@ def register_user(db: Session, user_data: UserCreate) -> User:
     return user
 
 
-def authenticate_user(db: Session, email: str, password: str) -> User:
-    """Authenticate user and return user object"""
-    user = db.query(User).filter(User.email == email).first()
+def authenticate_user(db: Session, email: str = None, phone: str = None, password: str = None) -> User:
+    """Authenticate user by email OR phone and return user object"""
+    if not email and not phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either email or phone must be provided"
+        )
+    
+    if not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is required"
+        )
+    
+    # Try to find user by email or phone
+    if email:
+        user = db.query(User).filter(User.email == email).first()
+    else:
+        user = db.query(User).filter(User.phone == phone).first()
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid credentials"
         )
     
     if not verify_password(password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid credentials"
         )
     
     if not user.is_active:

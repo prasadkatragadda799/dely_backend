@@ -8,6 +8,7 @@ from app.database import Base
 
 
 class KYCStatus(str, enum.Enum):
+    NOT_VERIFIED = "not_verified"
     PENDING = "pending"
     VERIFIED = "verified"
     REJECTED = "rejected"
@@ -25,7 +26,7 @@ class User(Base):
     gst_number = Column(String(15), nullable=True)
     pan_number = Column(String(10), nullable=True)
     address = Column(JSON, nullable=True)
-    kyc_status = Column(SQLEnum(KYCStatus), default=KYCStatus.PENDING, nullable=False)
+    kyc_status = Column(SQLEnum(KYCStatus), default=KYCStatus.NOT_VERIFIED, nullable=False)
     kyc_verified_at = Column(DateTime, nullable=True)
     kyc_verified_by = Column(String(36), ForeignKey("admins.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)

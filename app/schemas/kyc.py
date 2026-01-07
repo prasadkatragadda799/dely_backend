@@ -44,6 +44,11 @@ class KYCResponse(BaseModel):
 
 class KYCStatusResponse(BaseModel):
     kyc_status: str
+    kycStatus: str  # camelCase alternative
+    is_kyc_verified: bool  # Boolean alternative
     kyc_id: Optional[UUID] = None
+    submitted_at: Optional[datetime] = None
     verified_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    notes: Optional[str] = None
 

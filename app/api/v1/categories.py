@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.api.deps import require_kyc_verified
 from app.schemas.category import CategoryResponse
 from app.schemas.product import ProductListResponse
 from app.schemas.common import ResponseModel

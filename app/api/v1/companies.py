@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.api.deps import require_kyc_verified
 from app.schemas.company import CompanyResponse, BrandResponse
 from app.schemas.common import ResponseModel
 from app.models.company import Company
@@ -17,9 +18,10 @@ router = APIRouter()
 def get_companies(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
-    """Get all companies"""
+    """Get all companies - Requires KYC verification"""
     query = db.query(Company)
     total = query.count()
     offset = (page - 1) * limit
@@ -47,7 +49,11 @@ def get_companies(
 
 
 @router.get("/{company_id}", response_model=ResponseModel)
-def get_company(company_id: UUID, db: Session = Depends(get_db)):
+def get_company(
+    company_id: UUID,
+    current_user = Depends(require_kyc_verified),
+    db: Session = Depends(get_db)
+):
     """Get company details"""
     company_id_str = str(company_id)
     company = db.query(Company).filter(Company.id == company_id_str).first()

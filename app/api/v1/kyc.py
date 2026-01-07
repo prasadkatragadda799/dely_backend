@@ -32,8 +32,8 @@ def submit_kyc(
     db: Session = Depends(get_db)
 ):
     """Submit business KYC"""
-    # Check if KYC already exists
-    existing_kyc = db.query(KYC).filter(KYC.user_id == current_user.id).first()
+    # Check if KYC already exists (handle UUID conversion)
+    existing_kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
     
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
         raise HTTPException(status_code=400, detail="KYC already verified")
@@ -56,9 +56,15 @@ def submit_kyc(
         db.refresh(existing_kyc)
         kyc = existing_kyc
     else:
-        # Create new KYC
+        # Create new KYC (handle UUID conversion - User.id is String(36), KYC.user_id is UUID)
+        from uuid import UUID
+        try:
+            user_uuid = UUID(str(current_user.id))
+        except (ValueError, AttributeError):
+            # If conversion fails, try without dashes
+            user_uuid = UUID(str(current_user.id).replace('-', ''))
         kyc = KYC(
-            user_id=current_user.id,
+            user_id=user_uuid,
             business_name=kyc_data.business_name,
             gst_number=kyc_data.gst_number,
             pan_number=kyc_data.pan_number,
@@ -72,16 +78,18 @@ def submit_kyc(
         db.refresh(kyc)
     
     # Update user KYC status
-    current_user.kyc_status = KYCStatus.PENDING
+    from app.models.user import KYCStatus as UserKYCStatus
+    current_user.kyc_status = UserKYCStatus.PENDING
     db.commit()
     
     return ResponseModel(
         success=True,
         data={
-            "kyc_status": kyc.status.value,
-            "kyc_id": kyc.id
+            "kyc_id": str(kyc.id),
+            "status": kyc.status.value,
+            "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None
         },
-        message="KYC submitted successfully"
+        message="KYC submitted successfully. Your verification is under review."
     )
 
 
@@ -90,25 +98,53 @@ def get_kyc_status(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get KYC status"""
-    kyc = db.query(KYC).filter(KYC.user_id == current_user.id).first()
+    """Get KYC status with all field variations"""
+    kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
+    
+    kyc_status_value = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
+    is_kyc_verified = kyc_status_value == "verified"
     
     if not kyc:
         return ResponseModel(
             success=True,
-            data=KYCStatusResponse(
-                kyc_status=current_user.kyc_status.value,
-                kyc_id=None,
-                verified_at=None
-            )
-        )
+            data={
+                "kyc_status": kyc_status_value,
+                "kycStatus": kyc_status_value,  # camelCase alternative
+                "is_kyc_verified": is_kyc_verified,  # Boolean alternative
+            "kyc_id": None,
+            "submitted_at": None,
+            "verified_at": current_user.kyc_verified_at.isoformat() if current_user.kyc_verified_at else None,
+            "rejection_reason": None,
+            "notes": None
+        }
+    )
+
+
+@router.post("/skip", response_model=ResponseModel)
+def skip_kyc(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Skip KYC submission - user can complete later from profile"""
+    # User's kyc_status remains "not_verified" (default)
+    # No action needed, just return success message
     
     return ResponseModel(
         success=True,
-        data=KYCStatusResponse(
-            kyc_status=kyc.status.value,
-            kyc_id=kyc.id,
-            verified_at=kyc.verified_at
-        )
+        message="KYC can be completed later from your profile"
+    )
+    
+    return ResponseModel(
+        success=True,
+        data={
+            "kyc_status": kyc.status.value,
+            "kycStatus": kyc.status.value,  # camelCase alternative
+            "is_kyc_verified": kyc.status.value == "verified",  # Boolean alternative
+            "kyc_id": kyc.id,
+            "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
+            "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
+            "rejection_reason": kyc.rejection_reason if hasattr(kyc, 'rejection_reason') else None,
+            "notes": None  # Can be added to KYC model if needed
+        }
     )
 

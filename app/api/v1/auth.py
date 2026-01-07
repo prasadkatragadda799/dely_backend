@@ -22,19 +22,36 @@ router = APIRouter()
 
 @router.post("/register", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user"""
+    """Register a new user with kyc_status = 'not_verified'"""
     try:
         user = register_user(db, user_data)
         tokens = create_tokens(user)
         
+        # Get KYC status as string with all variations
+        kyc_status = user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status)
+        is_kyc_verified = kyc_status == "verified"
+        
+        # Format user data with all field variations
+        user_data_response = {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "business_name": user.business_name,
+            "kyc_status": kyc_status,
+            "kycStatus": kyc_status,  # camelCase alternative
+            "is_kyc_verified": is_kyc_verified,  # Boolean alternative
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        }
+        
         return ResponseModel(
             success=True,
             data={
-                "user": UserResponse.model_validate(user),
+                "user": user_data_response,
                 "token": tokens["token"],
                 "refresh_token": tokens["refresh_token"]
             },
-            message="User registered successfully"
+            message="Registration successful"
         )
     except HTTPException:
         raise
@@ -47,15 +64,37 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=ResponseModel)
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
-    """Login user"""
+    """Login user with email OR phone"""
     try:
-        user = authenticate_user(db, credentials.email, credentials.password)
+        user = authenticate_user(
+            db, 
+            email=credentials.email, 
+            phone=credentials.phone,
+            password=credentials.password
+        )
         tokens = create_tokens(user)
+        
+        # Get KYC status as string with all variations
+        kyc_status = user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status)
+        is_kyc_verified = kyc_status == "verified"
+        
+        # Format user data with all field variations
+        user_data_response = {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "business_name": user.business_name,
+            "kyc_status": kyc_status,
+            "kycStatus": kyc_status,  # camelCase alternative
+            "is_kyc_verified": is_kyc_verified,  # Boolean alternative
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        }
         
         return ResponseModel(
             success=True,
             data={
-                "user": UserResponse.model_validate(user),
+                "user": user_data_response,
                 "token": tokens["token"],
                 "refresh_token": tokens["refresh_token"]
             },

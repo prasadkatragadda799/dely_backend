@@ -47,3 +47,34 @@ async def get_current_active_user(
         )
     return current_user
 
+
+async def require_kyc_verified(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Require KYC verification for accessing products/companies"""
+    from fastapi.responses import JSONResponse
+    from app.models.user import KYCStatus
+    
+    kyc_status = current_user.kyc_status
+    kyc_status_value = kyc_status.value if hasattr(kyc_status, 'value') else str(kyc_status)
+    
+    if kyc_status_value != "verified":
+        # Map status to response format
+        if kyc_status_value == "pending":
+            status_for_response = "pending"
+        else:
+            status_for_response = "not_verified"
+        
+        # Return proper JSON response format
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "success": False,
+                "message": "KYC verification required. Please complete your business verification to access products.",
+                "error": "KYC_NOT_VERIFIED",
+                "kyc_status": status_for_response
+            }
+        )
+    
+    return current_user
+

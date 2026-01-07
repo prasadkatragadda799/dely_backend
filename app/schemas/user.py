@@ -53,8 +53,14 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
     password: str
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        if not self.email and not self.phone:
+            raise ValueError("Either email or phone must be provided")
 
 
 class ChangePassword(BaseModel):
