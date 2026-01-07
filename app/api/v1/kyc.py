@@ -74,6 +74,14 @@ def submit_kyc(
     db: Session = Depends(get_db)
 ):
     """Submit business KYC"""
+    # Validate required fields
+    if not kyc_data.business_name:
+        raise HTTPException(status_code=400, detail="Business name is required")
+    if not kyc_data.gst_number:
+        raise HTTPException(status_code=400, detail="GST number is required")
+    if not kyc_data.pan_number:
+        raise HTTPException(status_code=400, detail="PAN number is required")
+    
     # Check if KYC already exists (handle UUID conversion)
     existing_kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
     
