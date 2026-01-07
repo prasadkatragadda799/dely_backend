@@ -139,8 +139,8 @@ async def list_users(
             "gst_number": u.gst_number,
             "gstNumber": u.gst_number,  # Alternative field name
             "gst": u.gst_number,  # Alternative field name
-            "kyc_status": u.kyc_status.value if hasattr(u.kyc_status, 'value') else str(u.kyc_status) if u.kyc_status else "not_verified",
-            "kycStatus": u.kyc_status.value if hasattr(u.kyc_status, 'value') else str(u.kyc_status) if u.kyc_status else "not_verified",  # Alternative field name
+            "kyc_status": u.kyc_status.value if hasattr(u.kyc_status, 'value') else (str(u.kyc_status) if u.kyc_status else "not_verified"),
+            "kycStatus": u.kyc_status.value if hasattr(u.kyc_status, 'value') else (str(u.kyc_status) if u.kyc_status else "not_verified"),  # Alternative field name
             "is_active": u.is_active,
             "isActive": u.is_active,  # Alternative field name
             "total_orders": total_orders,
@@ -248,8 +248,8 @@ async def get_user(
         "gstNumber": user.gst_number,  # Alternative field name
         "pan_number": user.pan_number,
         "panNumber": user.pan_number,  # Alternative field name
-        "kyc_status": user.kyc_status.value,
-        "kycStatus": user.kyc_status.value,  # Alternative field name
+        "kyc_status": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
+        "kycStatus": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),  # Alternative field name
         "is_active": user.is_active,
         "isActive": user.is_active,  # Alternative field name
         "total_orders": total_orders,
@@ -375,8 +375,8 @@ async def update_user(
         "businessName": user.business_name,
         "gst_number": user.gst_number,
         "gstNumber": user.gst_number,
-        "kyc_status": user.kyc_status.value,
-        "kycStatus": user.kyc_status.value,
+        "kyc_status": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
+        "kycStatus": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
         "is_active": user.is_active,
         "isActive": user.is_active,
         "total_orders": total_orders,
