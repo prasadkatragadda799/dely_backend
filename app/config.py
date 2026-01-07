@@ -66,6 +66,20 @@ class Settings(BaseSettings):
     ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Admin")
     ADMIN_ROLE: str = os.getenv("ADMIN_ROLE", "super_admin")  # super_admin, admin, manager, support
     
+    # Seller/Company Information for Invoices
+    SELLER_NAME: str = os.getenv("SELLER_NAME", "GRANARY WHOLESALE PRIVATE LIMITED")
+    SELLER_ADDRESS_LINE1: str = os.getenv("SELLER_ADDRESS_LINE1", "No 331, Sarai Jagarnath")
+    SELLER_ADDRESS_LINE2: str = os.getenv("SELLER_ADDRESS_LINE2", "pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh")
+    SELLER_CITY: str = os.getenv("SELLER_CITY", "Azamgarh")
+    SELLER_STATE: str = os.getenv("SELLER_STATE", "Uttar Pradesh")
+    SELLER_PINCODE: str = os.getenv("SELLER_PINCODE", "276207")
+    SELLER_GSTIN: str = os.getenv("SELLER_GSTIN", "09AAHCG7552R1ZP")
+    SELLER_PAN: str = os.getenv("SELLER_PAN", "AAHCG7552R")
+    SELLER_FSSAI: str = os.getenv("SELLER_FSSAI", "10019043002791")
+    SELLER_FSSAI_LINK: str = os.getenv("SELLER_FSSAI_LINK", "https://foscos.fssai.gov.in/")
+    SELLER_PHONE: str = os.getenv("SELLER_PHONE", "+91 XXXXX XXXXX")
+    SELLER_EMAIL: str = os.getenv("SELLER_EMAIL", "company@example.com")
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
