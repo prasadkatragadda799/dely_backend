@@ -8,12 +8,13 @@ from decimal import Decimal
 class OrderItemCreate(BaseModel):
     product_id: UUID
     quantity: int
-    price: Decimal
+    price: Optional[Decimal] = None  # Optional, will be fetched from product if not provided
 
 
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
-    delivery_address: Dict[str, Any]
+    delivery_location_id: Optional[UUID] = None  # Support delivery_location_id from frontend
+    delivery_address: Optional[Dict[str, Any]] = None  # Support direct delivery_address
     payment_method: str
     payment_details: Optional[Dict[str, Any]] = None
 

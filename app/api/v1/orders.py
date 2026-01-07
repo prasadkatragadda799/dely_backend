@@ -23,6 +23,32 @@ def create_order(
     db: Session = Depends(get_db)
 ):
     """Create a new order"""
+    # Handle delivery address - support both delivery_location_id and delivery_address
+    delivery_address = order_data.delivery_address
+    if order_data.delivery_location_id and not delivery_address:
+        # Fetch delivery location and convert to address dict
+        from app.models.delivery_location import DeliveryLocation
+        # DeliveryLocation.id is UUID type, DeliveryLocation.user_id is UUID but User.id is String(36)
+        # Convert both for compatibility
+        location = db.query(DeliveryLocation).filter(
+            DeliveryLocation.id == order_data.delivery_location_id,
+            DeliveryLocation.user_id == str(current_user.id)  # User.id is String(36)
+        ).first()
+        if not location:
+            raise HTTPException(status_code=404, detail="Delivery location not found")
+        
+        delivery_address = {
+            "address_line1": location.address,
+            "address_line2": location.landmark or "",
+            "city": location.city,
+            "state": location.state,
+            "pincode": location.pincode,
+            "type": location.type,
+            "is_default": location.is_default
+        }
+    elif not delivery_address:
+        raise HTTPException(status_code=400, detail="Either delivery_location_id or delivery_address is required")
+    
     # Calculate totals
     items_data = [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items]
     totals = calculate_order_totals(items_data, db)
@@ -32,7 +58,7 @@ def create_order(
         order_number=generate_order_number(),
         user_id=str(current_user.id),
         status=OrderStatus.PENDING,
-        delivery_address=order_data.delivery_address,
+        delivery_address=delivery_address,
         payment_method=order_data.payment_method,
         payment_details=order_data.payment_details,
         subtotal=totals["subtotal"],

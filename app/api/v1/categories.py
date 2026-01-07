@@ -81,16 +81,105 @@ def get_category_products(
     subcategories = db.query(Category).filter(Category.parent_id == category_id_str).all()
     category_ids.extend([str(c.id) for c in subcategories])
     
-    query = db.query(Product).filter(Product.category_id.in_(category_ids))
+    query = db.query(Product).filter(
+        Product.category_id.in_(category_ids),
+        Product.is_available == True
+    )
     total = query.count()
     offset = (page - 1) * limit
     products = query.offset(offset).limit(limit).all()
     
+    # Format products manually to handle None values and match main products endpoint structure
+    product_list = []
+    for p in products:
+        # Calculate discount percentage
+        discount = 0.0
+        if p.mrp and p.selling_price and p.mrp > 0:
+            discount = float(((p.mrp - p.selling_price) / p.mrp) * 100)
+        
+        product_data = {
+            "id": p.id,
+            "name": p.name,
+            "slug": p.slug,
+            "description": p.description,
+            "mrp": float(p.mrp) if p.mrp else None,
+            "sellingPrice": float(p.selling_price) if p.selling_price else None,
+            "discount": round(discount, 2),
+            "stockQuantity": p.stock_quantity,
+            "minOrderQuantity": p.min_order_quantity,
+            "unit": p.unit,
+            "piecesPerSet": p.pieces_per_set,
+            "specifications": p.specifications or {},
+            "isFeatured": p.is_featured,
+            "isAvailable": p.is_available,
+            "images": [],
+            "variants": [
+                {
+                    "id": v.id,
+                    "hsnCode": getattr(v, "hsn_code", None),
+                    "setPieces": getattr(v, "set_pcs", None),
+                    "weight": getattr(v, "weight", None),
+                    "mrp": float(v.mrp) if v.mrp is not None else None,
+                    "specialPrice": float(getattr(v, "special_price")) if getattr(v, "special_price", None) is not None else None,
+                    "freeItem": getattr(v, "free_item", None),
+                }
+                for v in getattr(p, "variants", []) or []
+            ],
+            "createdAt": p.created_at.isoformat() if p.created_at else None
+        }
+        
+        # Add brand information
+        if p.brand_rel:
+            product_data["brand"] = {
+                "id": p.brand_rel.id,
+                "name": p.brand_rel.name,
+                "logoUrl": p.brand_rel.logo_url
+            }
+        elif hasattr(p, 'brand') and p.brand:
+            product_data["brand"] = p.brand
+        
+        # Add company information
+        if p.company:
+            product_data["company"] = {
+                "id": p.company.id,
+                "name": p.company.name,
+                "logoUrl": p.company.logo_url or p.company.logo
+            }
+        
+        # Add category information
+        if p.category:
+            product_data["category"] = {
+                "id": p.category.id,
+                "name": p.category.name,
+                "slug": p.category.slug
+            }
+        
+        # Add product images
+        if p.product_images:
+            product_data["images"] = [{
+                "url": img.image_url,
+                "isPrimary": img.is_primary
+            } for img in sorted(p.product_images, key=lambda x: x.display_order)]
+        elif p.images:  # Fallback to legacy images field
+            if isinstance(p.images, list):
+                product_data["images"] = [{"url": img, "isPrimary": idx == 0} for idx, img in enumerate(p.images)]
+        
+        # Add rating (for future reviews feature)
+        product_data["rating"] = float(p.rating) if p.rating else 0.0
+        product_data["reviewCount"] = p.reviews_count or 0
+        
+        product_list.append(product_data)
+    
     return ResponseModel(
         success=True,
         data={
-            "items": [ProductListResponse.model_validate(p) for p in products],
-            "pagination": paginate(products, page, limit, total)
+            "products": product_list,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "totalPages": (total + limit - 1) // limit
+            }
         }
     )
 
