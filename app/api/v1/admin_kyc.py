@@ -3,7 +3,7 @@ Admin KYC Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, String, cast
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -72,14 +72,10 @@ async def list_kyc_submissions(
         
         # Get KYC documents
         # Note: KYCDocument.user_id is UUID, User.id is String(36)
-        # Convert user.id to UUID for query
-        from uuid import UUID as UUIDType
-        try:
-            user_uuid = UUIDType(str(user.id))
-            documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
-        except (ValueError, AttributeError):
-            # If conversion fails, try string comparison
-            documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+        # Use cast to convert UUID to string for comparison
+        documents = db.query(KYCDocument).filter(
+            cast(KYCDocument.user_id, String) == str(user.id)
+        ).all()
         
         submission_data = {
             "id": str(kyc.id),
@@ -150,6 +146,106 @@ async def list_kyc_submissions(
     )
 
 
+@router.get("/user/{user_id}", response_model=ResponseModel)
+async def get_kyc_by_user_id(
+    user_id: str,  # Accept as string to handle both UUID formats
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Get KYC submission by user ID"""
+    # Handle both dashed and non-dashed UUID formats
+    user_id_str = str(user_id).replace('-', '').strip() if '-' in str(user_id) else str(user_id).strip()
+    
+    # First, verify user exists
+    user = db.query(User).filter(
+        or_(
+            User.id == str(user_id),
+            User.id == user_id_str
+        )
+    ).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Query KYC by user_id
+    # Note: KYC.user_id is UUID, User.id is String(36)
+    # Convert user.id to UUID for comparison
+    try:
+        from uuid import UUID as UUIDType
+        user_uuid = UUIDType(str(user.id))
+        # Get the most recent KYC submission for this user
+        kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+            KYC.user_id == user_uuid
+        ).order_by(KYC.created_at.desc()).first()
+    except (ValueError, AttributeError):
+        # If UUID conversion fails, try using cast
+        kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+            cast(KYC.user_id, String) == str(user.id)
+        ).order_by(KYC.created_at.desc()).first()
+    
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found for this user")
+    
+    # Format response with all field name variations
+    kyc_data = {
+        "id": str(kyc.id),
+        "userId": str(kyc.user_id),
+        "user_id": str(kyc.user_id),
+        "user": {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone
+        },
+        "userName": user.name,
+        "user_name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "businessName": kyc.business_name,
+        "business_name": kyc.business_name,
+        "companyName": kyc.business_name,
+        "gstNumber": kyc.gst_number,
+        "gst_number": kyc.gst_number,
+        "gst": kyc.gst_number,
+        "panNumber": kyc.pan_number,
+        "pan_number": kyc.pan_number,
+        "pan": kyc.pan_number,
+        "status": kyc.status.value if hasattr(kyc.status, 'value') else str(kyc.status),
+        "kyc_status": kyc.status.value if hasattr(kyc.status, 'value') else str(kyc.status),
+        "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submissionDate": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submission_date": kyc.created_at.isoformat() if kyc.created_at else None,
+        "createdAt": kyc.created_at.isoformat() if kyc.created_at else None,
+        "created_at": kyc.created_at.isoformat() if kyc.created_at else None,
+        "verifiedAt": kyc.verified_at.isoformat() if kyc.verified_at else None,
+        "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
+        "rejectedAt": None,
+        "rejected_at": None,
+        "rejectionReason": None,
+        "rejection_reason": None,
+        "verifiedBy": str(user.kyc_verified_by) if hasattr(user, 'kyc_verified_by') and user.kyc_verified_by else None,
+        "verified_by": str(user.kyc_verified_by) if hasattr(user, 'kyc_verified_by') and user.kyc_verified_by else None
+    }
+    
+    # Add rejection info if status is rejected
+    if kyc.status == KYCStatus.REJECTED:
+        # Check user's kyc_status for rejection reason if available
+        if hasattr(user, 'kyc_status') and user.kyc_status == UserKYCStatus.REJECTED:
+            # Rejection reason might be in user model or KYC model
+            # For now, set a default message
+            kyc_data["rejectionReason"] = "KYC submission rejected"
+            kyc_data["rejection_reason"] = "KYC submission rejected"
+            kyc_data["rejectedAt"] = user.updated_at.isoformat() if hasattr(user, 'updated_at') and user.updated_at else None
+            kyc_data["rejected_at"] = user.updated_at.isoformat() if hasattr(user, 'updated_at') and user.updated_at else None
+    
+    return ResponseModel(
+        success=True,
+        data=kyc_data,
+        message="KYC submission retrieved successfully"
+    )
+
+
 @router.get("/{kyc_id}", response_model=ResponseModel)
 async def get_kyc_details(
     kyc_id: UUID,
@@ -167,12 +263,10 @@ async def get_kyc_details(
     
     # Get KYC documents
     # Note: KYCDocument.user_id is UUID, User.id is String(36)
-    from uuid import UUID as UUIDType
-    try:
-        user_uuid = UUIDType(str(user.id))
-        documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
-    except (ValueError, AttributeError):
-        documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+    # Use cast to convert UUID to string for comparison
+    documents = db.query(KYCDocument).filter(
+        cast(KYCDocument.user_id, String) == str(user.id)
+    ).all()
     
     # Format address
     address = kyc.address if isinstance(kyc.address, dict) else {}
@@ -342,12 +436,11 @@ async def get_kyc_documents(
     
     # Get KYC documents
     # Note: KYCDocument.user_id is UUID, User.id is String(36)
-    from uuid import UUID as UUIDType
-    try:
-        user_uuid = UUIDType(str(user.id))
-        documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
-    except (ValueError, AttributeError):
-        documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+    # Use cast to convert UUID to string for comparison
+    from sqlalchemy import String, cast
+    documents = db.query(KYCDocument).filter(
+        cast(KYCDocument.user_id, String) == str(user.id)
+    ).all()
     
     # Format documents
     document_list = []
