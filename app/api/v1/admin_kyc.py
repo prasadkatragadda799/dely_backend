@@ -349,13 +349,22 @@ async def verify_kyc(
     if kyc.status != KYCStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"KYC is already {kyc.status.value}")
     
-    # Update KYC status
-    kyc.status = KYCStatus.VERIFIED
-    kyc.verified_at = datetime.utcnow()
+    # Update KYC status using update() to avoid type mismatch in WHERE clause
+    db.query(KYC).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).update({
+        "status": KYCStatus.VERIFIED,
+        "verified_at": datetime.utcnow()
+    })
     db.commit()
     
+    # Reload kyc object to get updated values and user relationship
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).first()
+    
     # Update user's KYC status
-    user = kyc.user
+    user = kyc.user if kyc else None
     if user:
         user.kyc_status = UserKYCStatus.VERIFIED
         user.kyc_verified_at = datetime.utcnow()
@@ -401,9 +410,16 @@ async def reject_kyc(
     if not reject_data.reason:
         raise HTTPException(status_code=400, detail="Rejection reason is required")
     
-    # Update KYC status
-    kyc.status = KYCStatus.REJECTED
+    # Update KYC status using update() to avoid type mismatch in WHERE clause
+    db.query(KYC).filter(
+        cast(KYC.id, String) == str(kyc_id)
+    ).update({
+        "status": KYCStatus.REJECTED
+    })
     db.commit()
+    
+    # Refresh the kyc object to get updated values
+    db.refresh(kyc)
     
     # Update user's KYC status
     user = kyc.user
