@@ -12,8 +12,11 @@ class OrderStatus(str, enum.Enum):
     CONFIRMED = "confirmed"
     PROCESSING = "processing"
     SHIPPED = "shipped"
+    OUT_FOR_DELIVERY = "out_for_delivery"
     DELIVERED = "delivered"
+    COMPLETED = "completed"
     CANCELLED = "cancelled"
+    CANCELED = "canceled"  # Alternative spelling
 
 
 class Order(Base):

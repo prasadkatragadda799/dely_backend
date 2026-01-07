@@ -2,13 +2,16 @@
 Admin KYC Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
 from app.database import get_db
 from app.schemas.common import ResponseModel
-from app.models.user import User, KYCStatus
+from app.schemas.admin_kyc import KYCVerify, KYCReject
+from app.models.user import User, KYCStatus as UserKYCStatus
+from app.models.kyc import KYC, KYCStatus
 from app.models.kyc_document import KYCDocument
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
@@ -22,55 +25,120 @@ async def list_kyc_submissions(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
+    search: Optional[str] = None,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """List KYC submissions"""
-    query = db.query(User).filter(User.kyc_status != None)
+    # Note: KYC.user_id is UUID, but User.id is String(36)
+    # We need to query KYC and join with User
+    query = db.query(KYC).options(joinedload(KYC.user))
     
     # Apply status filter
     if status:
         try:
             kyc_status = KYCStatus(status)
-            query = query.filter(User.kyc_status == kyc_status)
+            query = query.filter(KYC.status == kyc_status)
         except ValueError:
             pass
+    
+    # Apply search filter
+    if search:
+        # Use join to search across both KYC and User tables
+        # Note: KYC.user_id is UUID, User.id is String(36), but relationship should work
+        query = query.join(User).filter(
+            or_(
+                User.name.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%"),
+                KYC.business_name.ilike(f"%{search}%"),
+                KYC.gst_number.ilike(f"%{search}%"),
+                KYC.pan_number.ilike(f"%{search}%")
+            )
+        )
     
     # Get total count
     total = query.count()
     
     # Apply pagination
     offset = (page - 1) * limit
-    users = query.offset(offset).limit(limit).all()
+    kyc_submissions = query.order_by(KYC.created_at.desc()).offset(offset).limit(limit).all()
     
-    # Format response
+    # Format response with all field name variations
     submissions = []
-    for user in users:
-        # Get KYC documents
-        documents = db.query(KYCDocument).filter(KYCDocument.user_id == user.id).all()
+    for kyc in kyc_submissions:
+        user = kyc.user
+        if not user:
+            continue
         
-        submissions.append({
-            "id": user.id,
+        # Get KYC documents
+        # Note: KYCDocument.user_id is UUID, User.id is String(36)
+        # Convert user.id to UUID for query
+        from uuid import UUID as UUIDType
+        try:
+            user_uuid = UUIDType(str(user.id))
+            documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
+        except (ValueError, AttributeError):
+            # If conversion fails, try string comparison
+            documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+        
+        submission_data = {
+            "id": str(kyc.id),
+            "userId": str(kyc.user_id),
+            "user_id": str(kyc.user_id),
             "user": {
-                "id": user.id,
+                "id": str(user.id),
                 "name": user.name,
-                "businessName": user.business_name,
-                "email": user.email
+                "email": user.email,
+                "phone": user.phone
             },
-            "gstNumber": user.gst_number,
-            "panNumber": user.pan_number,
-            "status": user.kyc_status.value,
-            "submissionDate": user.created_at,  # Or use a dedicated KYC submission date
-            "documents": [{
-                "type": doc.document_type,
-                "url": doc.document_url
-            } for doc in documents]
-        })
+            "userName": user.name,
+            "user_name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "businessName": kyc.business_name,
+            "business_name": kyc.business_name,
+            "companyName": kyc.business_name,
+            "gstNumber": kyc.gst_number,
+            "gst_number": kyc.gst_number,
+            "gst": kyc.gst_number,
+            "panNumber": kyc.pan_number,
+            "pan_number": kyc.pan_number,
+            "pan": kyc.pan_number,
+            "status": kyc.status.value,
+            "kyc_status": kyc.status.value,
+            "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+            "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
+            "submissionDate": kyc.created_at.isoformat() if kyc.created_at else None,
+            "submission_date": kyc.created_at.isoformat() if kyc.created_at else None,
+            "createdAt": kyc.created_at.isoformat() if kyc.created_at else None,
+            "created_at": kyc.created_at.isoformat() if kyc.created_at else None,
+            "verifiedAt": kyc.verified_at.isoformat() if kyc.verified_at else None,
+            "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
+            "rejectedAt": None,  # KYC model doesn't have rejected_at, use status
+            "rejected_at": None,
+            "rejectionReason": None,  # KYC model doesn't have rejection_reason field
+            "rejection_reason": None,
+            "verifiedBy": str(user.kyc_verified_by) if user.kyc_verified_by else None,
+            "verified_by": str(user.kyc_verified_by) if user.kyc_verified_by else None
+        }
+        
+        # Add rejection info if status is rejected
+        if kyc.status == KYCStatus.REJECTED:
+            # Check user's kyc_status for rejection reason if available
+            if hasattr(user, 'kyc_status') and user.kyc_status == UserKYCStatus.REJECTED:
+                # Rejection reason might be in user model or KYC model
+                # For now, set a default message
+                submission_data["rejectionReason"] = "KYC submission rejected"
+                submission_data["rejection_reason"] = "KYC submission rejected"
+                submission_data["rejectedAt"] = user.updated_at.isoformat() if user.updated_at else None
+                submission_data["rejected_at"] = user.updated_at.isoformat() if user.updated_at else None
+        
+        submissions.append(submission_data)
     
     return ResponseModel(
         success=True,
         data={
-            "submissions": submissions,
+            "items": submissions,
             "pagination": {
                 "page": page,
                 "limit": limit,
@@ -82,85 +150,242 @@ async def list_kyc_submissions(
     )
 
 
-@router.put("/{user_id}/verify", response_model=ResponseModel)
+@router.get("/{kyc_id}", response_model=ResponseModel)
+async def get_kyc_details(
+    kyc_id: UUID,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Get KYC submission details"""
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found")
+    
+    user = kyc.user
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this KYC submission")
+    
+    # Get KYC documents
+    # Note: KYCDocument.user_id is UUID, User.id is String(36)
+    from uuid import UUID as UUIDType
+    try:
+        user_uuid = UUIDType(str(user.id))
+        documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
+    except (ValueError, AttributeError):
+        documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+    
+    # Format address
+    address = kyc.address if isinstance(kyc.address, dict) else {}
+    
+    # Format additional info
+    additional_info = {
+        "businessType": kyc.business_type,
+        "business_type": kyc.business_type
+    }
+    
+    kyc_data = {
+        "id": str(kyc.id),
+        "userId": str(kyc.user_id),
+        "user_id": str(kyc.user_id),
+        "user": {
+            "id": str(user.id),
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone
+        },
+        "userName": user.name,
+        "user_name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "businessName": kyc.business_name,
+        "business_name": kyc.business_name,
+        "companyName": kyc.business_name,
+        "gstNumber": kyc.gst_number,
+        "gst_number": kyc.gst_number,
+        "gst": kyc.gst_number,
+        "panNumber": kyc.pan_number,
+        "pan_number": kyc.pan_number,
+        "pan": kyc.pan_number,
+        "status": kyc.status.value,
+        "kyc_status": kyc.status.value,
+        "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submitted_at": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submissionDate": kyc.created_at.isoformat() if kyc.created_at else None,
+        "submission_date": kyc.created_at.isoformat() if kyc.created_at else None,
+        "createdAt": kyc.created_at.isoformat() if kyc.created_at else None,
+        "created_at": kyc.created_at.isoformat() if kyc.created_at else None,
+        "verifiedAt": kyc.verified_at.isoformat() if kyc.verified_at else None,
+        "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None,
+        "rejectedAt": None,
+        "rejected_at": None,
+        "rejectionReason": None,
+        "rejection_reason": None,
+        "verifiedBy": str(user.kyc_verified_by) if user.kyc_verified_by else None,
+        "verified_by": str(user.kyc_verified_by) if user.kyc_verified_by else None,
+        "address": address,
+        "additionalInfo": additional_info
+    }
+    
+    return ResponseModel(
+        success=True,
+        data=kyc_data,
+        message="KYC submission retrieved successfully"
+    )
+
+
+@router.put("/{kyc_id}/verify", response_model=ResponseModel)
 async def verify_kyc(
-    user_id: UUID,
-    verify_data: dict,  # {"comments": "..."}
+    kyc_id: UUID,
+    verify_data: KYCVerify,
     request: Request,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Verify KYC submission"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found")
     
-    if user.kyc_status == KYCStatus.VERIFIED:
-        raise HTTPException(status_code=400, detail="KYC is already verified")
+    if kyc.status != KYCStatus.PENDING:
+        raise HTTPException(status_code=400, detail=f"KYC is already {kyc.status.value}")
     
-    user.kyc_status = KYCStatus.VERIFIED
-    user.kyc_verified_at = datetime.utcnow()
-    user.kyc_verified_by = admin.id
+    # Update KYC status
+    kyc.status = KYCStatus.VERIFIED
+    kyc.verified_at = datetime.utcnow()
     db.commit()
+    
+    # Update user's KYC status
+    user = kyc.user
+    if user:
+        user.kyc_status = UserKYCStatus.VERIFIED
+        user.kyc_verified_at = datetime.utcnow()
+        user.kyc_verified_by = str(admin.id)
+        db.commit()
     
     # Log activity
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="kyc_verified",
-        entity_type="user",
-        entity_id=user_id,
-        details={"comments": verify_data.get("comments")},
+        entity_type="kyc",
+        entity_id=kyc_id,
+        details={"comments": verify_data.comments},
         request=request
     )
     
     return ResponseModel(
         success=True,
-        data={
-            "id": user.id,
-            "kycStatus": user.kyc_status.value,
-            "verifiedAt": user.kyc_verified_at
-        },
         message="KYC verified successfully"
     )
 
 
-@router.put("/{user_id}/reject", response_model=ResponseModel)
+@router.put("/{kyc_id}/reject", response_model=ResponseModel)
 async def reject_kyc(
-    user_id: UUID,
-    reject_data: dict,  # {"reason": "..."}
+    kyc_id: UUID,
+    reject_data: KYCReject,
     request: Request,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Reject KYC submission"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found")
     
-    if user.kyc_status == KYCStatus.REJECTED:
-        raise HTTPException(status_code=400, detail="KYC is already rejected")
+    if kyc.status != KYCStatus.PENDING:
+        raise HTTPException(status_code=400, detail=f"KYC is already {kyc.status.value}")
     
-    user.kyc_status = KYCStatus.REJECTED
+    if not reject_data.reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    
+    # Update KYC status
+    kyc.status = KYCStatus.REJECTED
     db.commit()
+    
+    # Update user's KYC status
+    user = kyc.user
+    if user:
+        user.kyc_status = UserKYCStatus.REJECTED
+        db.commit()
     
     # Log activity
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="kyc_rejected",
-        entity_type="user",
-        entity_id=user_id,
-        details={"reason": reject_data.get("reason")},
+        entity_type="kyc",
+        entity_id=kyc_id,
+        details={"reason": reject_data.reason},
         request=request
     )
     
     return ResponseModel(
         success=True,
-        data={
-            "id": user.id,
-            "kycStatus": user.kyc_status.value
-        },
         message="KYC rejected successfully"
+    )
+
+
+@router.get("/{kyc_id}/documents", response_model=ResponseModel)
+async def get_kyc_documents(
+    kyc_id: UUID,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Get KYC documents"""
+    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(KYC.id == kyc_id).first()
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found")
+    
+    user = kyc.user
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this KYC submission")
+    
+    # Get KYC documents
+    # Note: KYCDocument.user_id is UUID, User.id is String(36)
+    from uuid import UUID as UUIDType
+    try:
+        user_uuid = UUIDType(str(user.id))
+        documents = db.query(KYCDocument).filter(KYCDocument.user_id == user_uuid).all()
+    except (ValueError, AttributeError):
+        documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+    
+    # Format documents
+    document_list = []
+    for doc in documents:
+        # Map document types
+        doc_type_map = {
+            "gst_certificate": "GST Certificate",
+            "pan_card": "PAN Card",
+            "business_license": "Business License",
+            "other": "Other Document"
+        }
+        doc_name = doc_type_map.get(doc.document_type, doc.document_type.replace("_", " ").title())
+        
+        document_list.append({
+            "id": str(doc.id),
+            "type": doc.document_type,
+            "name": doc_name,
+            "url": doc.document_url,
+            "uploadedAt": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
+            "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
+        })
+    
+    # Also check if documents are stored in KYC.documents JSON field
+    if kyc.documents and isinstance(kyc.documents, dict):
+        for doc_key, doc_url in kyc.documents.items():
+            if isinstance(doc_url, str) and doc_url:
+                document_list.append({
+                    "id": f"kyc-{doc_key}",
+                    "type": doc_key,
+                    "name": doc_key.replace("_", " ").title(),
+                    "url": doc_url,
+                    "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+                    "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
+                })
+    
+    return ResponseModel(
+        success=True,
+        data=document_list,
+        message="KYC documents retrieved successfully"
     )
 

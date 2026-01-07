@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import String, cast
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.schemas.kyc import GSTVerify, GSTVerifyResponse, KYCSubmit, KYCResponse, KYCStatusResponse
@@ -83,7 +84,15 @@ def submit_kyc(
         raise HTTPException(status_code=400, detail="PAN number is required")
     
     # Check if KYC already exists (handle UUID conversion)
-    existing_kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
+    # KYC.user_id is UUID, but current_user.id is String(36)
+    from uuid import UUID as UUIDType
+    try:
+        user_uuid = UUIDType(str(current_user.id))
+    except (ValueError, AttributeError):
+        # If conversion fails, try without dashes
+        user_uuid = UUIDType(str(current_user.id).replace('-', ''))
+    
+    existing_kyc = db.query(KYC).filter(KYC.user_id == user_uuid).first()
     
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
         raise HTTPException(status_code=400, detail="KYC already verified")
@@ -149,7 +158,14 @@ def get_kyc_status(
     db: Session = Depends(get_db)
 ):
     """Get KYC status with all field variations"""
-    kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
+    # KYC.user_id is UUID, but current_user.id is String(36)
+    from uuid import UUID as UUIDType
+    try:
+        user_uuid = UUIDType(str(current_user.id))
+    except (ValueError, AttributeError):
+        user_uuid = UUIDType(str(current_user.id).replace('-', ''))
+    
+    kyc = db.query(KYC).filter(KYC.user_id == user_uuid).first()
     
     kyc_status_value = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status_value == "verified"
