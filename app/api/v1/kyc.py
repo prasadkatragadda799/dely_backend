@@ -85,14 +85,8 @@ def submit_kyc(
     
     # Check if KYC already exists (handle UUID conversion)
     # KYC.user_id is UUID, but current_user.id is String(36)
-    from uuid import UUID as UUIDType
-    try:
-        user_uuid = UUIDType(str(current_user.id))
-    except (ValueError, AttributeError):
-        # If conversion fails, try without dashes
-        user_uuid = UUIDType(str(current_user.id).replace('-', ''))
-    
-    existing_kyc = db.query(KYC).filter(KYC.user_id == user_uuid).first()
+    # Use cast to convert UUID to string for comparison
+    existing_kyc = db.query(KYC).filter(cast(KYC.user_id, String) == str(current_user.id)).first()
     
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
         raise HTTPException(status_code=400, detail="KYC already verified")
@@ -116,12 +110,20 @@ def submit_kyc(
         kyc = existing_kyc
     else:
         # Create new KYC (handle UUID conversion - User.id is String(36), KYC.user_id is UUID)
-        from uuid import UUID
+        from uuid import UUID as UUIDType
         try:
-            user_uuid = UUID(str(current_user.id))
+            user_uuid = UUIDType(str(current_user.id))
         except (ValueError, AttributeError):
             # If conversion fails, try without dashes
-            user_uuid = UUID(str(current_user.id).replace('-', ''))
+            try:
+                user_uuid = UUIDType(str(current_user.id).replace('-', ''))
+            except (ValueError, AttributeError):
+                # If still fails, try with dashes added back
+                user_id_str = str(current_user.id)
+                if len(user_id_str) == 32:  # No dashes
+                    user_uuid = UUIDType(f"{user_id_str[:8]}-{user_id_str[8:12]}-{user_id_str[12:16]}-{user_id_str[16:20]}-{user_id_str[20:]}")
+                else:
+                    raise ValueError(f"Cannot convert {user_id_str} to UUID")
         kyc = KYC(
             user_id=user_uuid,
             business_name=kyc_data.business_name,
@@ -159,13 +161,8 @@ def get_kyc_status(
 ):
     """Get KYC status with all field variations"""
     # KYC.user_id is UUID, but current_user.id is String(36)
-    from uuid import UUID as UUIDType
-    try:
-        user_uuid = UUIDType(str(current_user.id))
-    except (ValueError, AttributeError):
-        user_uuid = UUIDType(str(current_user.id).replace('-', ''))
-    
-    kyc = db.query(KYC).filter(KYC.user_id == user_uuid).first()
+    # Use cast to convert UUID to string for comparison
+    kyc = db.query(KYC).filter(cast(KYC.user_id, String) == str(current_user.id)).first()
     
     kyc_status_value = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status_value == "verified"
