@@ -363,13 +363,18 @@ async def verify_kyc(
         cast(KYC.id, String) == str(kyc_id)
     ).first()
     
-    # Update user's KYC status
+    # Update user's KYC status using update() to ensure proper enum handling
     user = kyc.user if kyc else None
     if user:
-        user.kyc_status = UserKYCStatus.VERIFIED
-        user.kyc_verified_at = datetime.utcnow()
-        user.kyc_verified_by = str(admin.id)
+        # Use update() to ensure the enum value is properly converted
+        db.query(User).filter(User.id == user.id).update({
+            "kyc_status": UserKYCStatus.VERIFIED.value,  # Use .value to get the string
+            "kyc_verified_at": datetime.utcnow(),
+            "kyc_verified_by": str(admin.id)
+        })
         db.commit()
+        # Refresh user object to get updated values
+        db.refresh(user)
     
     # Log activity
     log_admin_activity(
@@ -421,11 +426,16 @@ async def reject_kyc(
     # Refresh the kyc object to get updated values
     db.refresh(kyc)
     
-    # Update user's KYC status
+    # Update user's KYC status using update() to ensure proper enum handling
     user = kyc.user
     if user:
-        user.kyc_status = UserKYCStatus.REJECTED
+        # Use update() to ensure the enum value is properly converted
+        db.query(User).filter(User.id == user.id).update({
+            "kyc_status": UserKYCStatus.REJECTED.value  # Use .value to get the string
+        })
         db.commit()
+        # Refresh user object to get updated values
+        db.refresh(user)
     
     # Log activity
     log_admin_activity(
