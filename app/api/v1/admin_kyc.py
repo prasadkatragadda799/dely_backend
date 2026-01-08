@@ -398,9 +398,16 @@ async def verify_kyc(
         request=request
     )
     
+    # Return success with updated status info
     return ResponseModel(
         success=True,
-        message="KYC verified successfully"
+        data={
+            "kyc_id": str(kyc_id),
+            "kyc_status": kyc.status.value,
+            "user_kyc_status": user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status),
+            "verified_at": kyc.verified_at.isoformat() if kyc.verified_at else None
+        },
+        message="KYC verified successfully. User profile has been updated."
     )
 
 
