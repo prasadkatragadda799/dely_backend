@@ -19,8 +19,9 @@ def get_profile(
     """Get user profile with both snake_case and camelCase fields for frontend compatibility"""
     # Refresh user from database to get latest kyc_status
     db.refresh(current_user)
-    # Get KYC status as string
-    kyc_status = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
+    # Get KYC status as string, normalize to lowercase
+    kyc_status_raw = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
+    kyc_status = kyc_status_raw.lower()  # Normalize to lowercase
     is_kyc_verified = kyc_status == "verified"
     
     # Extract business address details from address JSON if available

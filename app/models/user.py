@@ -32,9 +32,16 @@ class KYCStatusType(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None
+        # Try to convert to enum, handling both uppercase and lowercase
+        value_str = str(value).lower()  # Normalize to lowercase
         try:
-            return KYCStatus(value)
+            return KYCStatus(value_str)
         except ValueError:
+            # If exact match fails, try case-insensitive match
+            for status in KYCStatus:
+                if status.value.lower() == value_str:
+                    return status
+            # If still no match, return the value as-is (shouldn't happen in normal operation)
             return value
 
 

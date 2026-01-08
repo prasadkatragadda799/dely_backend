@@ -42,3 +42,14 @@ BEGIN
     END IF;
 END $$;
 
+-- Update existing records to use lowercase enum values
+-- This converts uppercase values (PENDING, VERIFIED, REJECTED) to lowercase (pending, verified, rejected)
+UPDATE users 
+SET kyc_status = LOWER(kyc_status::text)::kycstatus
+WHERE kyc_status::text != LOWER(kyc_status::text);
+
+-- Update KYC records to use lowercase enum values
+UPDATE kycs 
+SET status = LOWER(status::text)::kycstatus
+WHERE status::text != LOWER(status::text);
+

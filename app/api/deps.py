@@ -49,14 +49,22 @@ async def get_current_active_user(
 
 
 async def require_kyc_verified(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ) -> User:
     """Require KYC verification for accessing products/companies"""
     from fastapi.responses import JSONResponse
     from app.models.user import KYCStatus
     
+    # Refresh user from database to get latest kyc_status
+    db.refresh(current_user)
+    
     kyc_status = current_user.kyc_status
-    kyc_status_value = kyc_status.value if hasattr(kyc_status, 'value') else str(kyc_status)
+    # Normalize to lowercase for comparison (handles both enum and string values)
+    if isinstance(kyc_status, KYCStatus):
+        kyc_status_value = kyc_status.value.lower()
+    else:
+        kyc_status_value = str(kyc_status).lower()
     
     if kyc_status_value != "verified":
         # Map status to response format
