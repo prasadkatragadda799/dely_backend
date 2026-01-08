@@ -20,6 +20,84 @@ from app.models.admin import Admin
 router = APIRouter()
 
 
+@router.post("/sync-user-statuses", response_model=ResponseModel)
+async def sync_user_kyc_statuses(
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually sync user kyc_status from verified KYC submissions.
+    This is a utility endpoint to fix users whose profile kyc_status doesn't match their KYC submission status.
+    """
+    try:
+        # Find all verified KYC submissions
+        verified_kycs = db.query(KYC).filter(
+            or_(
+                KYC.status == KYCStatus.VERIFIED,
+                cast(KYC.status, String) == 'verified',
+                cast(KYC.status, String) == 'VERIFIED'
+            )
+        ).all()
+        
+        updated_count = 0
+        for kyc in verified_kycs:
+            # Get the user
+            user = kyc.user
+            if not user:
+                continue
+            
+            # Check if user's kyc_status needs updating
+            user_status = user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status)
+            if user_status.lower() != 'verified':
+                # Update user's kyc_status to verified
+                db.query(User).filter(User.id == user.id).update({
+                    "kyc_status": UserKYCStatus.VERIFIED.value,
+                    "kyc_verified_at": kyc.verified_at if kyc.verified_at else datetime.utcnow()
+                })
+                updated_count += 1
+        
+        # Find all rejected KYC submissions
+        rejected_kycs = db.query(KYC).filter(
+            or_(
+                KYC.status == KYCStatus.REJECTED,
+                cast(KYC.status, String) == 'rejected',
+                cast(KYC.status, String) == 'REJECTED'
+            )
+        ).all()
+        
+        rejected_count = 0
+        for kyc in rejected_kycs:
+            user = kyc.user
+            if not user:
+                continue
+            
+            user_status = user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status)
+            if user_status.lower() != 'rejected':
+                db.query(User).filter(User.id == user.id).update({
+                    "kyc_status": UserKYCStatus.REJECTED.value
+                })
+                rejected_count += 1
+        
+        db.commit()
+        
+        return ResponseModel(
+            success=True,
+            data={
+                "verified_users_updated": updated_count,
+                "rejected_users_updated": rejected_count,
+                "total_updated": updated_count + rejected_count
+            },
+            message=f"Synced {updated_count + rejected_count} user profiles with their KYC submission status"
+        )
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync user statuses: {str(e)}"
+        )
+
+
 @router.get("", response_model=ResponseModel)
 async def list_kyc_submissions(
     page: int = Query(1, ge=1),
