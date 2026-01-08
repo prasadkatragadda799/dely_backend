@@ -91,8 +91,17 @@ def submit_kyc(
         cast(KYC.user_id, String) == str(current_user.id)
     ).first()
     
+    # If KYC is already verified, return success response (recommended for better UX)
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
-        raise HTTPException(status_code=400, detail="KYC already verified")
+        return ResponseModel(
+            success=True,
+            data={
+                "kyc_id": str(existing_kyc.id) if existing_kyc.id else None,
+                "status": existing_kyc.status.value,  # "verified" (lowercase)
+                "verified_at": existing_kyc.verified_at.isoformat() if existing_kyc.verified_at else None
+            },
+            message="KYC is already verified"
+        )
     
     # Verify GST
     gst_details = verify_gst_number(kyc_data.gst_number)
