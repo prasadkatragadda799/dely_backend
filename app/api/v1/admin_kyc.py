@@ -349,32 +349,43 @@ async def verify_kyc(
     if kyc.status != KYCStatus.PENDING:
         raise HTTPException(status_code=400, detail=f"KYC is already {kyc.status.value}")
     
-    # Update KYC status using update() to avoid type mismatch in WHERE clause
-    db.query(KYC).filter(
-        cast(KYC.id, String) == str(kyc_id)
-    ).update({
-        "status": KYCStatus.VERIFIED,
-        "verified_at": datetime.utcnow()
-    })
-    db.commit()
+    # Get user before updates (needed for transaction)
+    user = kyc.user
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this KYC submission")
     
-    # Reload kyc object to get updated values and user relationship
-    kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-        cast(KYC.id, String) == str(kyc_id)
-    ).first()
-    
-    # Update user's KYC status using update() to ensure proper enum handling
-    user = kyc.user if kyc else None
-    if user:
-        # Use update() to ensure the enum value is properly converted
+    try:
+        # Use a transaction to ensure both updates succeed or fail together
+        # Update KYC status using update() to avoid type mismatch in WHERE clause
+        db.query(KYC).filter(
+            cast(KYC.id, String) == str(kyc_id)
+        ).update({
+            "status": KYCStatus.VERIFIED,
+            "verified_at": datetime.utcnow()
+        })
+        
+        # Update user's KYC status using update() to ensure proper enum handling
+        # This is CRITICAL: The mobile app checks users.kyc_status, not kycs.status
         db.query(User).filter(User.id == user.id).update({
-            "kyc_status": UserKYCStatus.VERIFIED.value,  # Use .value to get the string
+            "kyc_status": UserKYCStatus.VERIFIED.value,  # Use .value to get the string "verified"
             "kyc_verified_at": datetime.utcnow(),
             "kyc_verified_by": str(admin.id)
         })
+        
+        # Commit both updates together (atomic transaction)
         db.commit()
-        # Refresh user object to get updated values
+        
+        # Reload objects to get updated values
+        db.refresh(kyc)
         db.refresh(user)
+        
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to verify KYC: {str(e)}"
+        )
     
     # Log activity
     log_admin_activity(
@@ -415,27 +426,40 @@ async def reject_kyc(
     if not reject_data.reason:
         raise HTTPException(status_code=400, detail="Rejection reason is required")
     
-    # Update KYC status using update() to avoid type mismatch in WHERE clause
-    db.query(KYC).filter(
-        cast(KYC.id, String) == str(kyc_id)
-    ).update({
-        "status": KYCStatus.REJECTED
-    })
-    db.commit()
-    
-    # Refresh the kyc object to get updated values
-    db.refresh(kyc)
-    
-    # Update user's KYC status using update() to ensure proper enum handling
+    # Get user before updates (needed for transaction)
     user = kyc.user
-    if user:
-        # Use update() to ensure the enum value is properly converted
-        db.query(User).filter(User.id == user.id).update({
-            "kyc_status": UserKYCStatus.REJECTED.value  # Use .value to get the string
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this KYC submission")
+    
+    try:
+        # Use a transaction to ensure both updates succeed or fail together
+        # Update KYC status using update() to avoid type mismatch in WHERE clause
+        db.query(KYC).filter(
+            cast(KYC.id, String) == str(kyc_id)
+        ).update({
+            "status": KYCStatus.REJECTED
         })
+        
+        # Update user's KYC status using update() to ensure proper enum handling
+        # This is CRITICAL: The mobile app checks users.kyc_status, not kycs.status
+        db.query(User).filter(User.id == user.id).update({
+            "kyc_status": UserKYCStatus.REJECTED.value  # Use .value to get the string "rejected"
+        })
+        
+        # Commit both updates together (atomic transaction)
         db.commit()
-        # Refresh user object to get updated values
+        
+        # Reload objects to get updated values
+        db.refresh(kyc)
         db.refresh(user)
+        
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reject KYC: {str(e)}"
+        )
     
     # Log activity
     log_admin_activity(
