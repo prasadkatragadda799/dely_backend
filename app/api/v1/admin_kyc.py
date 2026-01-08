@@ -506,7 +506,6 @@ async def get_kyc_documents(
     # Get KYC documents
     # Note: KYCDocument.user_id is UUID, User.id is String(36)
     # Use cast to convert UUID to string for comparison
-    from sqlalchemy import String, cast
     documents = db.query(KYCDocument).filter(
         cast(KYCDocument.user_id, String) == str(user.id)
     ).all()
