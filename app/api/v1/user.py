@@ -12,8 +12,13 @@ router = APIRouter()
 
 
 @router.get("/profile", response_model=ResponseModel)
-def get_profile(current_user: User = Depends(get_current_user)):
+def get_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get user profile with both snake_case and camelCase fields for frontend compatibility"""
+    # Refresh user from database to get latest kyc_status
+    db.refresh(current_user)
     # Get KYC status as string
     kyc_status = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status == "verified"

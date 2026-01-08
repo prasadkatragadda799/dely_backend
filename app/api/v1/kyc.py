@@ -150,10 +150,14 @@ def submit_kyc(
         db.commit()
         # Don't refresh - object is already populated with ID from commit
     
-    # Update user KYC status
+    # Update user KYC status using update() to ensure proper enum handling
     from app.models.user import KYCStatus as UserKYCStatus
-    current_user.kyc_status = UserKYCStatus.PENDING
+    db.query(User).filter(User.id == current_user.id).update({
+        "kyc_status": UserKYCStatus.PENDING.value  # Use .value to get the string
+    })
     db.commit()
+    # Refresh current_user object to get updated values
+    db.refresh(current_user)
     
     # Convert UUID to string safely
     kyc_id_str = str(kyc.id) if kyc.id else None
