@@ -114,8 +114,9 @@ def update_profile(
     if user_data.gst_number is not None:
         if user_data.gst_number and len(user_data.gst_number) != 15:
             raise HTTPException(status_code=400, detail="GST number must be 15 characters")
-        # Format validation: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter
-        if user_data.gst_number and not re.match(r'^\d{2}[A-Z0-9]{10}[A-Z]\d[A-Z]$', user_data.gst_number.upper()):
+        # Format validation: 2 digits (state) + 10 alphanumeric (PAN) + 1 char (1-9 or A-Z) + 1 char (Z) + 1 digit (checksum)
+        # Correct format: ^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$
+        if user_data.gst_number and not re.match(r'^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$', user_data.gst_number.upper()):
             raise HTTPException(status_code=400, detail="Invalid GST number format")
         current_user.gst_number = user_data.gst_number.upper() if user_data.gst_number else None
     

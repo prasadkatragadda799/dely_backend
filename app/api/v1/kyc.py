@@ -34,11 +34,12 @@ def verify_gst(gst_data: GSTVerify, db: Session = Depends(get_db)):
                 detail="GST number must be exactly 15 characters"
             )
         
-        # Verify GST number format: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter
-        if not re.match(r'^\d{2}[A-Z0-9]{10}[A-Z]\d[A-Z]$', gst_number):
+        # Verify GST number format: 2 digits (state) + 10 alphanumeric (PAN) + 1 char (1-9 or A-Z) + 1 char (Z) + 1 digit (checksum)
+        # Correct format: ^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$
+        if not re.match(r'^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$', gst_number):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid GST number format. Expected format: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter"
+                detail="Invalid GST number format. Expected format: 2 digits (state) + 10 alphanumeric (PAN) + 1 char (1-9 or A-Z) + Z + 1 digit (checksum)"
             )
         
         # Get GST details (currently returns mock data)
