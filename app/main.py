@@ -10,7 +10,7 @@ from app.api.v1 import (
     auth, products, companies, categories, cart, orders,
     user, wishlist, offers, notifications, kyc, delivery, payments, stats
 )
-from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, admin_settings, admin_management, admin_invoices, delivery_auth, delivery_orders, admin_delivery
+from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, seller_resources, admin_settings, admin_management, admin_invoices, delivery_auth, delivery_orders, admin_delivery
 from app.middleware.security import SecurityHeadersMiddleware, TimingMiddleware
 import logging
 
@@ -196,6 +196,7 @@ app.include_router(admin_upload.router, prefix="/admin/upload", tags=["Admin Upl
 app.include_router(admin_reports.router, prefix="/admin/reports", tags=["Admin Reports"])
 app.include_router(admin_sellers.router, prefix="/admin/sellers", tags=["Admin Sellers"])
 app.include_router(seller_products.router, prefix="/seller/products", tags=["Seller Products"])
+app.include_router(seller_resources.router, prefix="/seller", tags=["Seller Resources"])
 app.include_router(admin_settings.router, prefix="/admin/settings", tags=["Admin Settings"])
 app.include_router(admin_management.router, prefix="/admin/admins", tags=["Admin Management"])
 app.include_router(admin_invoices.router, prefix="/admin/orders", tags=["Admin Invoices"])
