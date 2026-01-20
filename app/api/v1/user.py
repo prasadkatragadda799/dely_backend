@@ -5,7 +5,9 @@ from app.database import get_db
 from app.api.deps import get_current_user
 from app.schemas.user import UserResponse, UserUpdate, ChangePassword
 from app.schemas.common import ResponseModel
+from app.schemas.admin_report import UserActivityCreate
 from app.models.user import User
+from app.models.user_activity_log import UserActivityLog
 from app.utils.security import verify_password, get_password_hash
 
 router = APIRouter()
@@ -164,6 +166,16 @@ def update_profile(
     if user_data.address:
         current_user.address = user_data.address
     
+    # Update user location fields (for activity tracking)
+    if user_data.city is not None:
+        current_user.city = user_data.city
+    if user_data.state is not None:
+        current_user.state = user_data.state
+    if user_data.pincode is not None:
+        if user_data.pincode and (len(user_data.pincode) != 6 or not user_data.pincode.isdigit()):
+            raise HTTPException(status_code=400, detail="Pincode must be exactly 6 digits")
+        current_user.pincode = user_data.pincode
+    
     db.commit()
     db.refresh(current_user)
     
@@ -239,4 +251,36 @@ def change_password(
     db.commit()
     
     return ResponseModel(success=True, message="Password changed successfully")
+
+
+@router.post("/activity", response_model=ResponseModel)
+def log_user_activity(
+    activity_data: UserActivityCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Log user activity and update last_active_at timestamp.
+    
+    Activity types: 'login', 'order', 'view_product', 'app_open', etc.
+    """
+    # Update user's last_active_at timestamp
+    current_user.last_active_at = datetime.utcnow()
+    
+    # Create activity log
+    activity_log = UserActivityLog(
+        user_id=current_user.id,
+        activity_type=activity_data.activity_type,
+        location_city=current_user.city,
+        location_state=current_user.state,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(activity_log)
+    db.commit()
+    
+    return ResponseModel(
+        success=True,
+        message="Activity logged successfully"
+    )
 

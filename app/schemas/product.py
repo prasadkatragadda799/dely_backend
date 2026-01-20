@@ -45,6 +45,7 @@ class ProductResponse(BaseModel):
     price: Decimal
     original_price: Decimal
     discount: int
+    discount_percentage: Optional[float] = None  # Calculated discount percentage
     images: Optional[List[str]]
     description: Optional[str]
     specifications: Optional[Dict[str, Any]]
@@ -70,6 +71,7 @@ class ProductListResponse(BaseModel):
     price: Decimal
     original_price: Decimal
     discount: int
+    discount_percentage: Optional[float] = None  # Calculated discount percentage
     images: Optional[List[str]]
     rating: Decimal
     is_available: bool

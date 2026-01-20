@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 from app.models.user import User
 from app.schemas.user import UserCreate
 from app.utils.security import get_password_hash, verify_password, create_access_token, create_refresh_token
-from datetime import timedelta
+from datetime import timedelta, datetime
 from app.config import settings
 import uuid
 
@@ -53,7 +53,11 @@ def register_user(db: Session, user_data: UserCreate) -> User:
         business_name=user_data.business_name,
         gst_number=user_data.gst_number,
         address=address,
-        kyc_status=KYCStatus.NOT_VERIFIED  # Set to not_verified for new registrations
+        city=user_data.city,
+        state=user_data.state,
+        pincode=user_data.pincode,
+        kyc_status=KYCStatus.NOT_VERIFIED,  # Set to not_verified for new registrations
+        last_active_at=datetime.utcnow()  # Set initial last_active_at
     )
     
     db.add(user)
@@ -100,6 +104,10 @@ def authenticate_user(db: Session, email: str = None, phone: str = None, passwor
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
+    
+    # Update last_active_at timestamp on login
+    user.last_active_at = datetime.utcnow()
+    db.commit()
     
     return user
 

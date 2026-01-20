@@ -16,6 +16,8 @@ from app.models.order_status_history import OrderStatusHistory
 from app.models.admin_activity_log import AdminActivityLog
 from app.models.kyc_document import KYCDocument
 from app.models.product_variant import ProductVariant
+from app.models.user_activity_log import UserActivityLog
+from app.models.settings import Settings
 
 __all__ = [
     "User",
@@ -36,6 +38,8 @@ __all__ = [
     "OrderStatusHistory",
     "AdminActivityLog",
     "KYCDocument",
-    "ProductVariant"
+    "ProductVariant",
+    "UserActivityLog",
+    "Settings"
 ]
 

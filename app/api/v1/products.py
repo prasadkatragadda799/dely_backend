@@ -9,6 +9,7 @@ from app.models.product import Product
 from app.models.company import Company
 from app.models.category import Category
 from app.utils.pagination import paginate
+from app.utils.discount import calculate_discount_percentage
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -116,18 +117,22 @@ def get_products(
         
         # Add variants (if any)
         if hasattr(p, "variants") and p.variants:
-            product_data["variants"] = [
-                {
+            product_data["variants"] = []
+            for v in p.variants:
+                variant_mrp = v.mrp
+                variant_price = getattr(v, "special_price", None) or variant_mrp
+                variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
+                
+                product_data["variants"].append({
                     "id": v.id,
                     "hsnCode": getattr(v, "hsn_code", None),
                     "setPieces": getattr(v, "set_pcs", None),
                     "weight": getattr(v, "weight", None),
-                    "mrp": float(v.mrp) if v.mrp is not None else None,
-                    "specialPrice": float(getattr(v, "special_price")) if getattr(v, "special_price", None) is not None else None,
+                    "mrp": float(variant_mrp) if variant_mrp is not None else None,
+                    "specialPrice": float(variant_price) if variant_price is not None else None,
+                    "discountPercentage": variant_discount,
                     "freeItem": getattr(v, "free_item", None),
-                }
-                for v in p.variants
-            ]
+                })
         else:
             product_data["variants"] = []
 
@@ -227,18 +232,22 @@ def get_product(
     
     # Add variants
     if hasattr(product, "variants") and product.variants:
-        product_data["variants"] = [
-            {
+        product_data["variants"] = []
+        for v in product.variants:
+            variant_mrp = v.mrp
+            variant_price = getattr(v, "special_price", None) or variant_mrp
+            variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
+            
+            product_data["variants"].append({
                 "id": v.id,
                 "hsnCode": getattr(v, "hsn_code", None),
                 "setPieces": getattr(v, "set_pcs", None),
                 "weight": getattr(v, "weight", None),
-                "mrp": float(v.mrp) if v.mrp is not None else None,
-                "specialPrice": float(getattr(v, "special_price")) if getattr(v, "special_price", None) is not None else None,
+                "mrp": float(variant_mrp) if variant_mrp is not None else None,
+                "specialPrice": float(variant_price) if variant_price is not None else None,
+                "discountPercentage": variant_discount,
                 "freeItem": getattr(v, "free_item", None),
-            }
-            for v in product.variants
-        ]
+            })
     else:
         product_data["variants"] = []
 
@@ -441,20 +450,27 @@ def get_featured_products(
             "isFeatured": p.is_featured,
             "isAvailable": p.is_available,
             "images": [],
-            "variants": [
-                {
+            "variants": [],
+            "createdAt": p.created_at.isoformat() if p.created_at else None
+        }
+        
+        # Add variants with discount calculation
+        if hasattr(p, "variants") and p.variants:
+            for v in p.variants:
+                variant_mrp = getattr(v, "mrp", None)
+                variant_price = getattr(v, "special_price", None) or variant_mrp
+                variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
+                
+                product_data["variants"].append({
                     "id": v.id,
                     "hsnCode": getattr(v, "hsn_code", None),
                     "setPieces": getattr(v, "set_pcs", None),
                     "weight": getattr(v, "weight", None),
-                    "mrp": float(v.mrp) if v.mrp else None,
-                    "specialPrice": float(v.special_price) if v.special_price else None,
+                    "mrp": float(variant_mrp) if variant_mrp else None,
+                    "specialPrice": float(variant_price) if variant_price else None,
+                    "discountPercentage": variant_discount,
                     "freeItem": getattr(v, "free_item", None),
-                }
-                for v in getattr(p, "variants", []) or []
-            ],
-            "createdAt": p.created_at.isoformat() if p.created_at else None
-        }
+                })
         
         # Add brand information
         if p.brand_rel:

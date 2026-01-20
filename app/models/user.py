@@ -57,6 +57,15 @@ class User(Base):
     gst_number = Column(String(15), nullable=True)
     pan_number = Column(String(10), nullable=True)
     address = Column(JSON, nullable=True)
+    
+    # Location fields
+    city = Column(String(255), nullable=True)
+    state = Column(String(255), nullable=True)
+    pincode = Column(String(10), nullable=True)
+    
+    # Activity tracking
+    last_active_at = Column(DateTime, nullable=True)
+    
     kyc_status = Column(KYCStatusType(), default=KYCStatus.NOT_VERIFIED, nullable=False)
     kyc_verified_at = Column(DateTime, nullable=True)
     kyc_verified_by = Column(String(36), ForeignKey("admins.id"), nullable=True)
@@ -73,4 +82,5 @@ class User(Base):
     kyc_records = relationship("KYC", back_populates="user", cascade="all, delete-orphan")
     kyc_documents = relationship("KYCDocument", back_populates="user", cascade="all, delete-orphan")
     delivery_locations = relationship("DeliveryLocation", back_populates="user", cascade="all, delete-orphan")
+    activity_logs = relationship("UserActivityLog", back_populates="user", cascade="all, delete-orphan")
 

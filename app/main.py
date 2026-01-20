@@ -10,7 +10,7 @@ from app.api.v1 import (
     auth, products, companies, categories, cart, orders,
     user, wishlist, offers, notifications, kyc, delivery, payments, stats
 )
-from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload
+from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, admin_settings, admin_management
 from app.middleware.security import SecurityHeadersMiddleware, TimingMiddleware
 import logging
 
@@ -193,6 +193,11 @@ app.include_router(admin_categories.router, prefix="/admin/categories", tags=["A
 app.include_router(admin_offers.router, prefix="/admin/offers", tags=["Admin Offers"])
 app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["Admin Analytics"])
 app.include_router(admin_upload.router, prefix="/admin/upload", tags=["Admin Upload"])
+app.include_router(admin_reports.router, prefix="/admin/reports", tags=["Admin Reports"])
+app.include_router(admin_sellers.router, prefix="/admin/sellers", tags=["Admin Sellers"])
+app.include_router(seller_products.router, prefix="/seller/products", tags=["Seller Products"])
+app.include_router(admin_settings.router, prefix="/admin/settings", tags=["Admin Settings"])
+app.include_router(admin_management.router, prefix="/admin/admins", tags=["Admin Management"])
 
 # Serve uploaded files statically
 uploads_dir = Path(settings.UPLOAD_DIR)

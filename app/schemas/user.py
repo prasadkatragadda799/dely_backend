@@ -33,6 +33,10 @@ class UserUpdate(BaseModel):
     business_city: Optional[str] = None
     business_state: Optional[str] = None
     business_pincode: Optional[str] = Field(None, max_length=6, min_length=6)
+    # User location fields (for activity tracking)
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = Field(None, max_length=6, min_length=6)
     address: Optional[Dict[str, Any]] = None  # Legacy support
 
 
