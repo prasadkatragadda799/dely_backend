@@ -1,7 +1,7 @@
 """add user location and activity tracking
 
 Revision ID: b1a2c3d4e5f6
-Revises: aa1c2f3d9b0a
+Revises: 2a3b4c5d6e7f
 Create Date: 2026-01-20 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'b1a2c3d4e5f6'
-down_revision = 'aa1c2f3d9b0a'
+down_revision = '2a3b4c5d6e7f'
 branch_labels = None
 depends_on = None
 
