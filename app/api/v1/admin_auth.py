@@ -140,6 +140,47 @@ async def get_current_admin_info(
     )
 
 
+@router.put("/change-password", response_model=ResponseModel)
+async def change_admin_password(
+    request: Request,
+    admin: Admin = Depends(get_current_active_admin),
+    db: Session = Depends(get_db)
+):
+    """Change current admin/seller password"""
+    from pydantic import BaseModel
+    
+    class PasswordChange(BaseModel):
+        currentPassword: str
+        newPassword: str
+    
+    # Parse request body
+    body = await request.json()
+    password_data = PasswordChange(**body)
+    
+    # Verify current password
+    if not verify_password(password_data.currentPassword, admin.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Validate new password
+    if len(password_data.newPassword) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters"
+        )
+    
+    # Update password
+    admin.password_hash = get_password_hash(password_data.newPassword)
+    db.commit()
+    
+    return ResponseModel(
+        success=True,
+        message="Password updated successfully"
+    )
+
+
 @router.post("/logout", response_model=ResponseModel)
 async def admin_logout(
     request: Request,

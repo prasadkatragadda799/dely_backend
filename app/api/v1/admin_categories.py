@@ -15,7 +15,7 @@ from app.schemas.admin_category import (
 from app.schemas.common import ResponseModel
 from app.models.category import Category
 from app.models.product import Product
-from app.api.admin_deps import require_manager_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, require_seller_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
 from app.models.admin import Admin
@@ -90,10 +90,10 @@ def build_category_tree(db: Session, categories: list, parent_id: Optional[str] 
 
 @router.get("", response_model=ResponseModel)
 async def list_categories(
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_seller_or_above),
     db: Session = Depends(get_db)
 ):
-    """List all categories in hierarchical tree structure"""
+    """List all categories in hierarchical tree structure (accessible by sellers too)"""
     try:
         categories = db.query(Category).order_by(Category.display_order).all()
         

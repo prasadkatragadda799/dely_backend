@@ -20,10 +20,24 @@ class AdminResponse(BaseModel):
     email: str
     name: str
     role: AdminRole
+    companyId: Optional[str] = None  # UUID string for sellers
     avatar: Optional[str] = None
     
     class Config:
         from_attributes = True
+        
+    @classmethod
+    def model_validate(cls, obj):
+        """Custom validation to map company_id to companyId"""
+        data = {
+            "id": obj.id,
+            "email": obj.email,
+            "name": obj.name,
+            "role": obj.role,
+            "companyId": str(obj.company_id) if obj.company_id else None,
+            "avatar": obj.avatar_url
+        }
+        return super().model_validate(data)
 
 
 class AdminTokenResponse(BaseModel):
