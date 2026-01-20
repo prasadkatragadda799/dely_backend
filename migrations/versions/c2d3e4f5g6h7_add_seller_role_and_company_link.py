@@ -18,8 +18,26 @@ depends_on = None
 
 def upgrade():
     # Add 'seller' to AdminRole enum
-    # PostgreSQL doesn't support adding enum values in a transaction, so we need to use raw SQL
-    op.execute("ALTER TYPE adminrole ADD VALUE IF NOT EXISTS 'seller'")
+    # Only for PostgreSQL - SQLite doesn't have enum types
+    connection = op.get_bind()
+    if connection.dialect.name == 'postgresql':
+        # Check if enum type exists
+        result = connection.execute(sa.text(
+            "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'adminrole')"
+        ))
+        enum_exists = result.scalar()
+        
+        if enum_exists:
+            # Check if 'seller' value already exists
+            result = connection.execute(sa.text(
+                "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid WHERE t.typname = 'adminrole' AND e.enumlabel = 'seller')"
+            ))
+            value_exists = result.scalar()
+            
+            if not value_exists:
+                # Add the new enum value
+                connection.execute(sa.text("ALTER TYPE adminrole ADD VALUE 'seller'"))
+                connection.commit()
     
     # Add company_id column to admins table
     op.add_column('admins', sa.Column('company_id', sa.String(length=36), nullable=True))

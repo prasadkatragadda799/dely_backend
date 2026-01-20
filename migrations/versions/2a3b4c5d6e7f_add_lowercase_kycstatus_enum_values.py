@@ -23,19 +23,30 @@ def upgrade() -> None:
     # We need to add the lowercase versions to the enum
     connection = op.get_bind()
     if connection.dialect.name == 'postgresql':
-        # Add lowercase enum values
-        # Note: PostgreSQL doesn't support IF NOT EXISTS for ADD VALUE in older versions
-        # So we try to add and catch the error if it already exists
-        lowercase_values = ['pending', 'verified', 'rejected']
-        for value in lowercase_values:
-            try:
-                op.execute(f"ALTER TYPE kycstatus ADD VALUE '{value}'")
-            except Exception as e:
-                # If the value already exists, that's fine - just continue
-                error_str = str(e).lower()
-                if 'already exists' not in error_str and 'duplicate' not in error_str:
-                    # Re-raise if it's a different error
-                    raise
+        # Check if enum type exists
+        result = connection.execute(sa.text(
+            "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'kycstatus')"
+        ))
+        enum_exists = result.scalar()
+        
+        if enum_exists:
+            # Add lowercase enum values
+            lowercase_values = ['pending', 'verified', 'rejected']
+            for value in lowercase_values:
+                # Check if value already exists
+                result = connection.execute(sa.text(
+                    f"SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid WHERE t.typname = 'kycstatus' AND e.enumlabel = '{value}')"
+                ))
+                value_exists = result.scalar()
+                
+                if not value_exists:
+                    try:
+                        connection.execute(sa.text(f"ALTER TYPE kycstatus ADD VALUE '{value}'"))
+                        connection.commit()
+                    except Exception as e:
+                        error_str = str(e).lower()
+                        if 'already exists' not in error_str and 'duplicate' not in error_str:
+                            raise
 
 
 def downgrade() -> None:

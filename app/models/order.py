@@ -25,6 +25,7 @@ class Order(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_number = Column(String(50), unique=True, nullable=False, index=True)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    delivery_person_id = Column(String(36), ForeignKey("delivery_persons.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, nullable=False)
     payment_method = Column(String(50), nullable=True)
     payment_status = Column(String(20), default="pending", nullable=False)  # 'pending', 'paid', 'failed', 'refunded'
@@ -48,6 +49,7 @@ class Order(Base):
     
     # Relationships
     user = relationship("User", back_populates="orders")
+    delivery_person = relationship("DeliveryPerson")
     order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan", order_by="OrderStatusHistory.created_at")
 

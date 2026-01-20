@@ -22,16 +22,26 @@ def upgrade() -> None:
     # Check database type
     connection = op.get_bind()
     if connection.dialect.name == 'postgresql':
-        # For PostgreSQL, use ALTER TYPE to add the new enum value
-        # Note: PostgreSQL enum values are case-sensitive
-        # The enum was created with uppercase, but we're using lowercase in Python
-        # We need to add 'not_verified' (lowercase) to match the Python enum
-        try:
-            op.execute("ALTER TYPE kycstatus ADD VALUE IF NOT EXISTS 'not_verified'")
-        except Exception as e:
-            # If the value already exists, that's fine
-            if 'already exists' not in str(e).lower():
-                raise
+        # Check if enum type exists
+        result = connection.execute(sa.text(
+            "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'kycstatus')"
+        ))
+        enum_exists = result.scalar()
+        
+        if enum_exists:
+            # Check if 'not_verified' value already exists
+            result = connection.execute(sa.text(
+                "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid WHERE t.typname = 'kycstatus' AND e.enumlabel = 'not_verified')"
+            ))
+            value_exists = result.scalar()
+            
+            if not value_exists:
+                try:
+                    connection.execute(sa.text("ALTER TYPE kycstatus ADD VALUE 'not_verified'"))
+                    connection.commit()
+                except Exception as e:
+                    if 'already exists' not in str(e).lower():
+                        raise
     # For SQLite, enum is stored as string, so no migration needed
     # The model change is sufficient
 

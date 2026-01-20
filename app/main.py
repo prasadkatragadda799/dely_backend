@@ -10,7 +10,7 @@ from app.api.v1 import (
     auth, products, companies, categories, cart, orders,
     user, wishlist, offers, notifications, kyc, delivery, payments, stats
 )
-from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, admin_settings, admin_management, admin_invoices
+from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, admin_settings, admin_management, admin_invoices, delivery_auth, delivery_orders, admin_delivery
 from app.middleware.security import SecurityHeadersMiddleware, TimingMiddleware
 import logging
 
@@ -199,6 +199,9 @@ app.include_router(seller_products.router, prefix="/seller/products", tags=["Sel
 app.include_router(admin_settings.router, prefix="/admin/settings", tags=["Admin Settings"])
 app.include_router(admin_management.router, prefix="/admin/admins", tags=["Admin Management"])
 app.include_router(admin_invoices.router, prefix="/admin/orders", tags=["Admin Invoices"])
+app.include_router(admin_delivery.router, prefix="/admin/delivery", tags=["Admin Delivery"])
+app.include_router(delivery_auth.router, prefix="/delivery/auth", tags=["Delivery Authentication"])
+app.include_router(delivery_orders.router, prefix="/delivery/orders", tags=["Delivery Orders"])
 
 # Serve uploaded files statically
 uploads_dir = Path(settings.UPLOAD_DIR)
