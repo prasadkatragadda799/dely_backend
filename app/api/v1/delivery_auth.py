@@ -14,6 +14,45 @@ from app.config import settings
 router = APIRouter()
 
 
+# Dependency to get current delivery person from token
+async def get_current_delivery_person(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> DeliveryPerson:
+    """Get current authenticated delivery person"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    # Get token from header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise credentials_exception
+    
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    
+    # Decode token
+    payload = decode_token(token)
+    if payload is None:
+        raise credentials_exception
+    
+    delivery_person_id = payload.get("deliveryPersonId")
+    if delivery_person_id is None:
+        raise credentials_exception
+    
+    # Get delivery person from database
+    delivery_person = db.query(DeliveryPerson).filter(
+        DeliveryPerson.id == delivery_person_id
+    ).first()
+    
+    if delivery_person is None or not delivery_person.is_active:
+        raise credentials_exception
+    
+    return delivery_person
+
+
 @router.post("/login", response_model=ResponseModel)
 async def delivery_login(
     credentials: DeliveryLogin,
@@ -116,42 +155,3 @@ async def get_delivery_person_info(
         },
         message="Delivery person information retrieved successfully"
     )
-
-
-# Dependency to get current delivery person from token
-async def get_current_delivery_person(
-    request: Request,
-    db: Session = Depends(get_db)
-) -> DeliveryPerson:
-    """Get current authenticated delivery person"""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    
-    # Get token from header
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise credentials_exception
-    
-    token = auth_header[7:]  # Remove "Bearer " prefix
-    
-    # Decode token
-    payload = decode_token(token)
-    if payload is None:
-        raise credentials_exception
-    
-    delivery_person_id = payload.get("deliveryPersonId")
-    if delivery_person_id is None:
-        raise credentials_exception
-    
-    # Get delivery person from database
-    delivery_person = db.query(DeliveryPerson).filter(
-        DeliveryPerson.id == delivery_person_id
-    ).first()
-    
-    if delivery_person is None or not delivery_person.is_active:
-        raise credentials_exception
-    
-    return delivery_person
