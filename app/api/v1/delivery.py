@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
-from app.schemas.delivery import DeliveryLocationCreate, DeliveryLocationResponse, DeliveryCheck, DeliveryAvailabilityResponse
+from app.schemas.delivery_location import DeliveryLocationCreate, DeliveryLocationResponse, DeliveryCheck, DeliveryAvailabilityResponse
 from app.schemas.common import ResponseModel
 from app.models.delivery_location import DeliveryLocation
 from decimal import Decimal
