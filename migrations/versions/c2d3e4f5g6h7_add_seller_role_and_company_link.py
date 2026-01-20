@@ -17,27 +17,9 @@ depends_on = None
 
 
 def upgrade():
-    # Add 'seller' to AdminRole enum
-    # Only for PostgreSQL - SQLite doesn't have enum types
-    connection = op.get_bind()
-    if connection.dialect.name == 'postgresql':
-        # Check if enum type exists
-        result = connection.execute(sa.text(
-            "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'adminrole')"
-        ))
-        enum_exists = result.scalar()
-        
-        if enum_exists:
-            # Check if 'seller' value already exists
-            result = connection.execute(sa.text(
-                "SELECT EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid WHERE t.typname = 'adminrole' AND e.enumlabel = 'seller')"
-            ))
-            value_exists = result.scalar()
-            
-            if not value_exists:
-                # Add the new enum value
-                connection.execute(sa.text("ALTER TYPE adminrole ADD VALUE 'seller'"))
-                connection.commit()
+    # Note: The admins.role column is stored as String(50), not as a PostgreSQL enum type
+    # So we don't need to alter any enum type - the 'seller' value can be stored directly as a string
+    # The Python enum AdminRole handles the validation in the application layer
     
     # Add company_id column to admins table
     op.add_column('admins', sa.Column('company_id', sa.String(length=36), nullable=True))

@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # External APIs
     GST_VERIFICATION_API_URL: str = "https://api.gst.gov.in"
     GST_API_KEY: str = ""
+    GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
     
     # Payment Gateway
     PAYMENT_GATEWAY: str = "razorpay"
