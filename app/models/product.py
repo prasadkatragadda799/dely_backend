@@ -22,6 +22,7 @@ class Product(Base):
     min_order_quantity = Column(Integer, default=1, nullable=False)
     unit = Column(String(50), nullable=False)
     pieces_per_set = Column(Integer, default=1, nullable=False)
+    hsn_code = Column(String(50), nullable=True)  # HSN code for GST/tax
     specifications = Column(JSON, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
     is_available = Column(Boolean, default=True, nullable=False)
