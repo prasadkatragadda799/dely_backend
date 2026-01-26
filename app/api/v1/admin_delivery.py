@@ -9,7 +9,7 @@ from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.schemas.delivery import DeliveryPersonCreate, DeliveryPersonUpdate, OrderAssignment
 from app.models.delivery_person import DeliveryPerson
-from app.models.order import Order
+from app.models.order import Order, OrderStatus
 from app.models.admin import Admin
 from app.api.admin_deps import require_manager_or_above
 from app.utils.security import get_password_hash
@@ -63,7 +63,12 @@ async def list_delivery_persons(
         # Count assigned orders
         active_orders = db.query(Order).filter(
             Order.delivery_person_id == dp.id,
-            Order.status.in_(["confirmed", "processing", "shipped", "out_for_delivery"])
+            Order.status.in_([
+                OrderStatus.CONFIRMED,
+                OrderStatus.PROCESSING,
+                OrderStatus.SHIPPED,
+                OrderStatus.OUT_FOR_DELIVERY
+            ])
         ).count()
         
         persons_list.append({
