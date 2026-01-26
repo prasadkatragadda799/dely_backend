@@ -22,7 +22,7 @@ router = APIRouter()
 @router.get("/persons", response_model=ResponseModel)
 async def list_delivery_persons(
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
     is_available: Optional[bool] = None,
