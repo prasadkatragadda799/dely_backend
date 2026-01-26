@@ -4,6 +4,7 @@ For managing delivery personnel and assigning orders
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_
 from typing import Optional
 from app.database import get_db
 from app.schemas.common import ResponseModel
@@ -31,90 +32,105 @@ async def list_delivery_persons(
     db: Session = Depends(get_db)
 ):
     """List all delivery persons with filters"""
-    query = db.query(DeliveryPerson)
-    
-    # Apply filters
-    if search:
-        query = query.filter(
-            (DeliveryPerson.name.ilike(f"%{search}%")) |
-            (DeliveryPerson.phone.ilike(f"%{search}%")) |
-            (DeliveryPerson.employee_id.ilike(f"%{search}%"))
-        )
-    
-    if is_active is not None:
-        query = query.filter(DeliveryPerson.is_active == is_active)
-    
-    if is_available is not None:
-        query = query.filter(DeliveryPerson.is_available == is_available)
-    
-    if is_online is not None:
-        query = query.filter(DeliveryPerson.is_online == is_online)
-    
-    # Get total count
-    total = query.count()
-    
-    # Apply pagination
-    offset = (page - 1) * limit
-    delivery_persons = query.offset(offset).limit(limit).all()
-    
-    # Format response
-    persons_list = []
-    for dp in delivery_persons:
-        # Count assigned orders
-        active_orders = db.query(Order).filter(
-            Order.delivery_person_id == dp.id,
-            Order.status.in_([
-                OrderStatus.CONFIRMED,
-                OrderStatus.PROCESSING,
-                OrderStatus.SHIPPED,
-                OrderStatus.OUT_FOR_DELIVERY
-            ])
-        ).count()
+    try:
+        query = db.query(DeliveryPerson)
         
-        persons_list.append({
-            "id": dp.id,
-            "name": dp.name,
-            "phone": dp.phone,
-            "email": dp.email,
-            "employeeId": dp.employee_id,
-            "employee_id": dp.employee_id,
-            "vehicleNumber": dp.vehicle_number,
-            "vehicle_number": dp.vehicle_number,
-            "vehicleType": dp.vehicle_type,
-            "vehicle_type": dp.vehicle_type,
-            "isActive": dp.is_active,
-            "is_active": dp.is_active,
-            "isAvailable": dp.is_available,
-            "is_available": dp.is_available,
-            "isOnline": dp.is_online,
-            "is_online": dp.is_online,
-            "activeOrders": active_orders,
-            "active_orders": active_orders,
-            "currentLatitude": dp.current_latitude,
-            "current_latitude": dp.current_latitude,
-            "currentLongitude": dp.current_longitude,
-            "current_longitude": dp.current_longitude,
-            "lastLocationUpdate": dp.last_location_update.isoformat() if dp.last_location_update else None,
-            "last_location_update": dp.last_location_update.isoformat() if dp.last_location_update else None,
-            "lastLogin": dp.last_login.isoformat() if dp.last_login else None,
-            "last_login": dp.last_login.isoformat() if dp.last_login else None,
-            "createdAt": dp.created_at.isoformat() if dp.created_at else None,
-            "created_at": dp.created_at.isoformat() if dp.created_at else None
-        })
-    
-    return ResponseModel(
-        success=True,
-        data={
-            "items": persons_list,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total,
-                "totalPages": (total + limit - 1) // limit if limit > 0 else 0
-            }
-        },
-        message="Delivery persons retrieved successfully"
-    )
+        # Apply filters
+        if search:
+            query = query.filter(
+                or_(
+                    DeliveryPerson.name.ilike(f"%{search}%"),
+                    DeliveryPerson.phone.ilike(f"%{search}%"),
+                    and_(DeliveryPerson.employee_id.isnot(None), DeliveryPerson.employee_id.ilike(f"%{search}%"))
+                )
+            )
+        
+        if is_active is not None:
+            query = query.filter(DeliveryPerson.is_active == is_active)
+        
+        if is_available is not None:
+            query = query.filter(DeliveryPerson.is_available == is_available)
+        
+        if is_online is not None:
+            query = query.filter(DeliveryPerson.is_online == is_online)
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        delivery_persons = query.offset(offset).limit(limit).all()
+        
+        # Format response
+        persons_list = []
+        for dp in delivery_persons:
+            # Count assigned orders
+            try:
+                active_orders = db.query(Order).filter(
+                    Order.delivery_person_id == dp.id,
+                    Order.status.in_([
+                        OrderStatus.CONFIRMED,
+                        OrderStatus.PROCESSING,
+                        OrderStatus.SHIPPED,
+                        OrderStatus.OUT_FOR_DELIVERY
+                    ])
+                ).count()
+            except Exception as e:
+                # If there's an error counting orders, default to 0
+                active_orders = 0
+            
+            persons_list.append({
+                "id": dp.id,
+                "name": dp.name,
+                "phone": dp.phone,
+                "email": dp.email,
+                "employeeId": dp.employee_id,
+                "employee_id": dp.employee_id,
+                "vehicleNumber": dp.vehicle_number,
+                "vehicle_number": dp.vehicle_number,
+                "vehicleType": dp.vehicle_type,
+                "vehicle_type": dp.vehicle_type,
+                "isActive": dp.is_active,
+                "is_active": dp.is_active,
+                "isAvailable": dp.is_available,
+                "is_available": dp.is_available,
+                "isOnline": dp.is_online,
+                "is_online": dp.is_online,
+                "activeOrders": active_orders,
+                "active_orders": active_orders,
+                "currentLatitude": dp.current_latitude,
+                "current_latitude": dp.current_latitude,
+                "currentLongitude": dp.current_longitude,
+                "current_longitude": dp.current_longitude,
+                "lastLocationUpdate": dp.last_location_update.isoformat() if dp.last_location_update else None,
+                "last_location_update": dp.last_location_update.isoformat() if dp.last_location_update else None,
+                "lastLogin": dp.last_login.isoformat() if dp.last_login else None,
+                "last_login": dp.last_login.isoformat() if dp.last_login else None,
+                "createdAt": dp.created_at.isoformat() if dp.created_at else None,
+                "created_at": dp.created_at.isoformat() if dp.created_at else None
+            })
+        
+        return ResponseModel(
+            success=True,
+            data={
+                "items": persons_list,
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": total,
+                    "totalPages": (total + limit - 1) // limit if limit > 0 else 0
+                }
+            },
+            message="Delivery persons retrieved successfully"
+        )
+    except Exception as e:
+        import traceback
+        error_detail = str(e)
+        traceback_str = traceback.format_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving delivery persons: {error_detail}"
+        )
 
 
 @router.post("/persons", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
