@@ -26,6 +26,10 @@ class KYCSubmit(BaseModel):
     fssai_number: Optional[str] = None
     fssaiNumber: Optional[str] = None  # camelCase alternative
     fssaiLicenseNumber: Optional[str] = None  # extra camelCase alternative
+    shop_image_url: Optional[str] = None
+    shopImageUrl: Optional[str] = None  # camelCase alternative
+    fssai_license_image_url: Optional[str] = None
+    fssaiLicenseImageUrl: Optional[str] = None  # camelCase alternative
     pan_number: Optional[str] = None
     panNumber: Optional[str] = None  # camelCase alternative
     business_type: Optional[str] = None
@@ -44,6 +48,8 @@ class KYCSubmit(BaseModel):
         self.business_name = self.business_name or self.businessName or ""
         self.gst_number = self.gst_number or self.gstNumber or ""
         self.fssai_number = self.fssai_number or self.fssaiNumber or self.fssaiLicenseNumber or ""
+        self.shop_image_url = self.shop_image_url or self.shopImageUrl or ""
+        self.fssai_license_image_url = self.fssai_license_image_url or self.fssaiLicenseImageUrl or ""
         self.pan_number = self.pan_number or self.panNumber or ""
         self.business_type = self.business_type or self.businessType or "retailer"  # Default to retailer
         self.business_license = self.business_license or self.businessLicense
@@ -90,6 +96,8 @@ class KYCResponse(BaseModel):
     gst_number: str
     fssai_number: Optional[str] = None
     pan_number: Optional[str] = None  # legacy
+    shop_image_url: Optional[str] = None
+    fssai_license_image_url: Optional[str] = None
     business_type: str
     status: str
     verified_at: Optional[datetime] = None
