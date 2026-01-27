@@ -130,6 +130,9 @@ async def list_kyc_submissions(
                 User.email.ilike(f"%{search}%"),
                 KYC.business_name.ilike(f"%{search}%"),
                 KYC.gst_number.ilike(f"%{search}%"),
+                # New primary field
+                KYC.fssai_number.ilike(f"%{search}%"),
+                # Legacy support (old records)
                 KYC.pan_number.ilike(f"%{search}%")
             )
         )
@@ -175,9 +178,9 @@ async def list_kyc_submissions(
             "gstNumber": kyc.gst_number,
             "gst_number": kyc.gst_number,
             "gst": kyc.gst_number,
-            "panNumber": kyc.pan_number,
-            "pan_number": kyc.pan_number,
-            "pan": kyc.pan_number,
+            "fssaiNumber": kyc.fssai_number,
+            "fssai_number": kyc.fssai_number,
+            "fssai": kyc.fssai_number,
             "status": kyc.status.value,
             "kyc_status": kyc.status.value,
             "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,
@@ -285,9 +288,9 @@ async def get_kyc_by_user_id(
         "gstNumber": kyc.gst_number,
         "gst_number": kyc.gst_number,
         "gst": kyc.gst_number,
-        "panNumber": kyc.pan_number,
-        "pan_number": kyc.pan_number,
-        "pan": kyc.pan_number,
+        "fssaiNumber": kyc.fssai_number,
+        "fssai_number": kyc.fssai_number,
+        "fssai": kyc.fssai_number,
         "status": kyc.status.value if hasattr(kyc.status, 'value') else str(kyc.status),
         "kyc_status": kyc.status.value if hasattr(kyc.status, 'value') else str(kyc.status),
         "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,
@@ -378,9 +381,9 @@ async def get_kyc_details(
         "gstNumber": kyc.gst_number,
         "gst_number": kyc.gst_number,
         "gst": kyc.gst_number,
-        "panNumber": kyc.pan_number,
-        "pan_number": kyc.pan_number,
-        "pan": kyc.pan_number,
+        "fssaiNumber": kyc.fssai_number,
+        "fssai_number": kyc.fssai_number,
+        "fssai": kyc.fssai_number,
         "status": kyc.status.value,
         "kyc_status": kyc.status.value,
         "submittedAt": kyc.created_at.isoformat() if kyc.created_at else None,

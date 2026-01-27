@@ -28,6 +28,9 @@ class UserUpdate(BaseModel):
     business_name: Optional[str] = Field(None, min_length=2)
     business_type: Optional[str] = None  # Retail, Wholesale, Distributor
     gst_number: Optional[str] = Field(None, max_length=15, min_length=15)
+    fssai_number: Optional[str] = Field(None, max_length=14, min_length=14)
+    fssaiNumber: Optional[str] = Field(None, max_length=14, min_length=14)  # camelCase alternative
+    # Legacy field (keep optional during transition)
     pan_number: Optional[str] = Field(None, max_length=10, min_length=10)
     business_address: Optional[str] = None
     business_city: Optional[str] = None

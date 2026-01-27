@@ -55,6 +55,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     business_name = Column(String(255), nullable=False)
     gst_number = Column(String(15), nullable=True)
+    # New field: 14-digit FSSAI license number (stored as text)
+    fssai_number = Column(String(14), nullable=True)
+    # Legacy field (kept nullable for backward compatibility)
     pan_number = Column(String(10), nullable=True)
     address = Column(JSON, nullable=True)
     

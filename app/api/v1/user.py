@@ -58,6 +58,8 @@ def get_profile(
         "businessType": None,  # camelCase alternative
         "gst_number": current_user.gst_number,
         "gstNumber": current_user.gst_number,  # camelCase alternative
+        "fssai_number": current_user.fssai_number,
+        "fssaiNumber": current_user.fssai_number,  # camelCase alternative
         "pan_number": current_user.pan_number,
         "panNumber": current_user.pan_number,  # camelCase alternative
         "business_address": business_address,
@@ -129,7 +131,15 @@ def update_profile(
             raise HTTPException(status_code=400, detail="Invalid GST number format")
         current_user.gst_number = user_data.gst_number.upper() if user_data.gst_number else None
     
-    # Update PAN number with validation
+    # Update FSSAI license number with validation (digits only, exactly 14)
+    fssai_to_update = user_data.fssaiNumber or user_data.fssai_number
+    if fssai_to_update is not None:
+        fssai_clean = str(fssai_to_update).strip()
+        if fssai_clean and not re.fullmatch(r"^\d{14}$", fssai_clean):
+            raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
+        current_user.fssai_number = fssai_clean if fssai_clean else None
+
+    # Legacy: Update PAN number if provided (kept for old users)
     if user_data.pan_number is not None:
         if user_data.pan_number and len(user_data.pan_number) != 10:
             raise HTTPException(status_code=400, detail="PAN number must be 10 characters")
@@ -208,6 +218,8 @@ def update_profile(
         "businessType": business_type,
         "gst_number": current_user.gst_number,
         "gstNumber": current_user.gst_number,
+        "fssai_number": current_user.fssai_number,
+        "fssaiNumber": current_user.fssai_number,
         "pan_number": current_user.pan_number,
         "panNumber": current_user.pan_number,
         "business_address": business_address,

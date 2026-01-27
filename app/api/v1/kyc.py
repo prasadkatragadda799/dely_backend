@@ -76,13 +76,21 @@ def submit_kyc(
     db: Session = Depends(get_db)
 ):
     """Submit business KYC"""
+    import re
+
     # Validate required fields
     if not kyc_data.business_name:
         raise HTTPException(status_code=400, detail="Business name is required")
     if not kyc_data.gst_number:
         raise HTTPException(status_code=400, detail="GST number is required")
-    if not kyc_data.pan_number:
-        raise HTTPException(status_code=400, detail="PAN number is required")
+    if not kyc_data.fssai_number:
+        raise HTTPException(status_code=400, detail="FSSAI license number is required")
+
+    # Validate FSSAI: digits only, exactly 14
+    fssai_clean = str(kyc_data.fssai_number).strip()
+    if not re.fullmatch(r"^\d{14}$", fssai_clean):
+        raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
+    kyc_data.fssai_number = fssai_clean
     
     # Check if KYC already exists (handle UUID conversion)
     # KYC.user_id is UUID, but current_user.id is String(36)
@@ -112,7 +120,10 @@ def submit_kyc(
         # Update existing KYC
         existing_kyc.business_name = kyc_data.business_name
         existing_kyc.gst_number = kyc_data.gst_number
-        existing_kyc.pan_number = kyc_data.pan_number
+        existing_kyc.fssai_number = kyc_data.fssai_number
+        # Backward compatibility: store legacy PAN if provided, but never require it
+        if kyc_data.pan_number:
+            existing_kyc.pan_number = kyc_data.pan_number
         existing_kyc.business_type = kyc_data.business_type
         existing_kyc.address = kyc_data.address
         existing_kyc.documents = kyc_data.documents
@@ -140,7 +151,8 @@ def submit_kyc(
             user_id=user_uuid,
             business_name=kyc_data.business_name,
             gst_number=kyc_data.gst_number,
-            pan_number=kyc_data.pan_number,
+            fssai_number=kyc_data.fssai_number,
+            pan_number=kyc_data.pan_number or None,  # legacy (optional)
             business_type=kyc_data.business_type,
             address=kyc_data.address,
             documents=kyc_data.documents,

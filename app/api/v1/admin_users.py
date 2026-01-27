@@ -36,6 +36,8 @@ class AdminUserUpdate(BaseModel):
     businessName: Optional[str] = None  # Alternative field name
     gst_number: Optional[str] = None
     gstNumber: Optional[str] = None  # Alternative field name
+    fssai_number: Optional[str] = None
+    fssaiNumber: Optional[str] = None  # Alternative field name
     is_active: Optional[bool] = None
     isActive: Optional[bool] = None  # Alternative field name
 
@@ -69,7 +71,11 @@ async def list_users(
                 User.email.ilike(f"%{search}%"),
                 User.phone.ilike(f"%{search}%"),  # Added phone search
                 User.business_name.ilike(f"%{search}%"),
-                User.gst_number.ilike(f"%{search}%")
+                User.gst_number.ilike(f"%{search}%"),
+                # New primary field
+                User.fssai_number.ilike(f"%{search}%"),
+                # Legacy support (old records)
+                User.pan_number.ilike(f"%{search}%")
             )
         )
     
@@ -139,6 +145,8 @@ async def list_users(
             "gst_number": u.gst_number,
             "gstNumber": u.gst_number,  # Alternative field name
             "gst": u.gst_number,  # Alternative field name
+            "fssai_number": u.fssai_number,
+            "fssaiNumber": u.fssai_number,  # Alternative field name
             "kyc_status": u.kyc_status.value if hasattr(u.kyc_status, 'value') else (str(u.kyc_status) if u.kyc_status else "not_verified"),
             "kycStatus": u.kyc_status.value if hasattr(u.kyc_status, 'value') else (str(u.kyc_status) if u.kyc_status else "not_verified"),  # Alternative field name
             "is_active": u.is_active,
@@ -246,8 +254,8 @@ async def get_user(
         "businessName": user.business_name,  # Alternative field name
         "gst_number": user.gst_number,
         "gstNumber": user.gst_number,  # Alternative field name
-        "pan_number": user.pan_number,
-        "panNumber": user.pan_number,  # Alternative field name
+        "fssai_number": user.fssai_number,
+        "fssaiNumber": user.fssai_number,  # Alternative field name
         "kyc_status": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
         "kycStatus": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),  # Alternative field name
         "is_active": user.is_active,
@@ -332,6 +340,15 @@ async def update_user(
     gst_to_update = user_data.gstNumber or user_data.gst_number
     if gst_to_update is not None:
         user.gst_number = gst_to_update
+
+    fssai_to_update = user_data.fssaiNumber or user_data.fssai_number
+    if fssai_to_update is not None:
+        import re
+
+        fssai_clean = str(fssai_to_update).strip()
+        if fssai_clean and not re.fullmatch(r"^\d{14}$", fssai_clean):
+            raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
+        user.fssai_number = fssai_clean if fssai_clean else None
     
     is_active_to_update = user_data.isActive if user_data.isActive is not None else user_data.is_active
     if is_active_to_update is not None:
@@ -375,6 +392,8 @@ async def update_user(
         "businessName": user.business_name,
         "gst_number": user.gst_number,
         "gstNumber": user.gst_number,
+        "fssai_number": user.fssai_number,
+        "fssaiNumber": user.fssai_number,
         "kyc_status": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
         "kycStatus": user.kyc_status.value if hasattr(user.kyc_status, 'value') else (str(user.kyc_status) if user.kyc_status else "not_verified"),
         "is_active": user.is_active,

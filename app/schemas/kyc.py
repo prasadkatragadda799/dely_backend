@@ -23,6 +23,9 @@ class KYCSubmit(BaseModel):
     businessName: Optional[str] = None  # camelCase alternative
     gst_number: Optional[str] = None
     gstNumber: Optional[str] = None  # camelCase alternative
+    fssai_number: Optional[str] = None
+    fssaiNumber: Optional[str] = None  # camelCase alternative
+    fssaiLicenseNumber: Optional[str] = None  # extra camelCase alternative
     pan_number: Optional[str] = None
     panNumber: Optional[str] = None  # camelCase alternative
     business_type: Optional[str] = None
@@ -40,6 +43,7 @@ class KYCSubmit(BaseModel):
         # Use camelCase if provided, otherwise use snake_case
         self.business_name = self.business_name or self.businessName or ""
         self.gst_number = self.gst_number or self.gstNumber or ""
+        self.fssai_number = self.fssai_number or self.fssaiNumber or self.fssaiLicenseNumber or ""
         self.pan_number = self.pan_number or self.panNumber or ""
         self.business_type = self.business_type or self.businessType or "retailer"  # Default to retailer
         self.business_license = self.business_license or self.businessLicense
@@ -84,7 +88,8 @@ class KYCResponse(BaseModel):
     user_id: UUID
     business_name: str
     gst_number: str
-    pan_number: str
+    fssai_number: Optional[str] = None
+    pan_number: Optional[str] = None  # legacy
     business_type: str
     status: str
     verified_at: Optional[datetime] = None
