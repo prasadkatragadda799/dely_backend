@@ -334,9 +334,9 @@ async def get_kyc_details(
     db: Session = Depends(get_db)
 ):
     """Get KYC submission details"""
-    # Convert UUID to string for comparison (handles type mismatch)
+    # Convert UUID path parameter to string for comparison (KYC.id is String(36))
     kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-        cast(KYC.id, String) == str(kyc_id)
+        KYC.id == str(kyc_id)
     ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
@@ -420,9 +420,9 @@ async def verify_kyc(
     db: Session = Depends(get_db)
 ):
     """Verify KYC submission"""
-    # Convert UUID to string for comparison (handles type mismatch)
+    # Convert UUID path parameter to string for comparison (KYC.id is String(36))
     kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-        cast(KYC.id, String) == str(kyc_id)
+        KYC.id == str(kyc_id)
     ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
@@ -437,9 +437,9 @@ async def verify_kyc(
     
     try:
         # Use a transaction to ensure both updates succeed or fail together
-        # Update KYC status using update() to avoid type mismatch in WHERE clause
+        # Update KYC status (KYC.id is String(36))
         db.query(KYC).filter(
-            cast(KYC.id, String) == str(kyc_id)
+            KYC.id == str(kyc_id)
         ).update({
             "status": KYCStatus.VERIFIED,
             "verified_at": datetime.utcnow()
@@ -501,9 +501,9 @@ async def reject_kyc(
     db: Session = Depends(get_db)
 ):
     """Reject KYC submission"""
-    # Convert UUID to string for comparison (handles type mismatch)
+    # Convert UUID path parameter to string for comparison (KYC.id is String(36))
     kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-        cast(KYC.id, String) == str(kyc_id)
+        KYC.id == str(kyc_id)
     ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
@@ -521,9 +521,9 @@ async def reject_kyc(
     
     try:
         # Use a transaction to ensure both updates succeed or fail together
-        # Update KYC status using update() to avoid type mismatch in WHERE clause
+        # Update KYC status (KYC.id is String(36))
         db.query(KYC).filter(
-            cast(KYC.id, String) == str(kyc_id)
+            KYC.id == str(kyc_id)
         ).update({
             "status": KYCStatus.REJECTED
         })
@@ -573,9 +573,9 @@ async def get_kyc_documents(
     db: Session = Depends(get_db)
 ):
     """Get KYC documents"""
-    # Convert UUID to string for comparison (handles type mismatch)
+    # Convert UUID path parameter to string for comparison (KYC.id is String(36))
     kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-        cast(KYC.id, String) == str(kyc_id)
+        KYC.id == str(kyc_id)
     ).first()
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found")
