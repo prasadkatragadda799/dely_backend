@@ -37,11 +37,11 @@ def create_order(
     if order_data.delivery_location_id and not delivery_address:
         # Fetch delivery location and convert to address dict
         from app.models.delivery_location import DeliveryLocation
-        # DeliveryLocation.id is UUID type, DeliveryLocation.user_id is UUID but User.id is String(36)
-        # Convert both for compatibility
+        # DeliveryLocation.id is String(36), DeliveryLocation.user_id is String(36), User.id is String(36)
+        # Convert UUID path parameter to string for comparison
         location = db.query(DeliveryLocation).filter(
-            DeliveryLocation.id == order_data.delivery_location_id,
-            DeliveryLocation.user_id == str(current_user.id)  # User.id is String(36)
+            DeliveryLocation.id == str(order_data.delivery_location_id),
+            DeliveryLocation.user_id == str(current_user.id)
         ).first()
         if not location:
             raise HTTPException(status_code=404, detail="Delivery location not found")
