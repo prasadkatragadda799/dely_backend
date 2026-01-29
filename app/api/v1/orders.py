@@ -74,7 +74,9 @@ def create_order(
         discount=totals["discount"],
         delivery_charge=totals["delivery_charge"],
         tax=totals["tax"],
-        total_amount=totals["total"]
+        # DB schema requires `total` (NOT NULL). Keep `total_amount` in sync if present.
+        total=totals["total"],
+        total_amount=totals["total"],
     )
     db.add(order)
     db.flush()

@@ -92,12 +92,8 @@ def submit_kyc(
         raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
     kyc_data.fssai_number = fssai_clean
     
-    # Check if KYC already exists (handle UUID conversion)
-    # KYC.user_id is UUID, but current_user.id is String(36)
-    # Use cast to convert UUID to string for comparison (same pattern as admin_companies.py)
-    existing_kyc = db.query(KYC).filter(
-        cast(KYC.user_id, String) == str(current_user.id)
-    ).first()
+    # Check if KYC already exists (KYC.user_id and current_user.id are String(36))
+    existing_kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
     
     # If KYC is already verified, return success response (recommended for better UX)
     if existing_kyc and existing_kyc.status == KYCStatus.VERIFIED:
@@ -132,23 +128,9 @@ def submit_kyc(
         # Don't refresh - object is already updated
         kyc = existing_kyc
     else:
-        # Create new KYC (handle UUID conversion - User.id is String(36), KYC.user_id is UUID)
-        from uuid import UUID as UUIDType
-        try:
-            user_uuid = UUIDType(str(current_user.id))
-        except (ValueError, AttributeError):
-            # If conversion fails, try without dashes
-            try:
-                user_uuid = UUIDType(str(current_user.id).replace('-', ''))
-            except (ValueError, AttributeError):
-                # If still fails, try with dashes added back
-                user_id_str = str(current_user.id)
-                if len(user_id_str) == 32:  # No dashes
-                    user_uuid = UUIDType(f"{user_id_str[:8]}-{user_id_str[8:12]}-{user_id_str[12:16]}-{user_id_str[16:20]}-{user_id_str[20:]}")
-                else:
-                    raise ValueError(f"Cannot convert {user_id_str} to UUID")
+        # Create new KYC (User.id and KYC.user_id are String(36))
         kyc = KYC(
-            user_id=user_uuid,
+            user_id=str(current_user.id),
             business_name=kyc_data.business_name,
             gst_number=kyc_data.gst_number,
             fssai_number=kyc_data.fssai_number,
@@ -194,11 +176,8 @@ def get_kyc_status(
     db: Session = Depends(get_db)
 ):
     """Get KYC status with all field variations"""
-    # KYC.user_id is UUID, but current_user.id is String(36)
-    # Use cast to convert UUID to string for comparison
-    kyc = db.query(KYC).filter(
-        cast(KYC.user_id, String) == str(current_user.id)
-    ).first()
+    # KYC.user_id and current_user.id are String(36)
+    kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
     
     kyc_status_value = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status_value == "verified"

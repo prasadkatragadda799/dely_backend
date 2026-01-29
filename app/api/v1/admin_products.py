@@ -199,25 +199,38 @@ async def create_product(
     # Form fields
     name: str = Form(...),
     description: Optional[str] = Form(None),
-    categoryId: Optional[str] = Form(None),  # Frontend sends as categoryId
-    brand_id: Optional[str] = Form(None),
-    company_id: Optional[str] = Form(None),
-    mrp: Decimal = Form(...),
-    sellingPrice: Decimal = Form(...),  # Frontend sends as sellingPrice
-    stockQuantity: int = Form(0),  # Frontend sends as stockQuantity
-    minOrderQuantity: int = Form(1),  # Frontend sends as minOrderQuantity
-    unit: str = Form(...),
-    piecesPerSet: int = Form(1),  # Frontend sends as piecesPerSet
+    # Accept both camelCase and snake_case for compatibility with different admin UIs
+    categoryId: Optional[str] = Form(None),  # camelCase
+    category_id: Optional[str] = Form(None),  # snake_case
+    brand_id: Optional[str] = Form(None),  # snake_case
+    brandId: Optional[str] = Form(None),  # camelCase
+    company_id: Optional[str] = Form(None),  # snake_case
+    companyId: Optional[str] = Form(None),  # camelCase
+    mrp: Optional[Decimal] = Form(None),
+    sellingPrice: Optional[Decimal] = Form(None),  # camelCase
+    selling_price: Optional[Decimal] = Form(None),  # snake_case
+    stockQuantity: Optional[int] = Form(None),  # camelCase
+    stock_quantity: Optional[int] = Form(None),  # snake_case
+    minOrderQuantity: Optional[int] = Form(None),  # camelCase
+    min_order_quantity: Optional[int] = Form(None),  # snake_case
+    unit: Optional[str] = Form(None),
+    piecesPerSet: Optional[int] = Form(None),  # camelCase
+    pieces_per_set: Optional[int] = Form(None),  # snake_case
     specifications: Optional[str] = Form(None),  # JSON string
-    isFeatured: Optional[str] = Form("false"),  # Frontend sends as isFeatured (string)
-    isAvailable: Optional[str] = Form("true"),  # Frontend sends as isAvailable (string)
-    meta_title: Optional[str] = Form(None),
-    meta_description: Optional[str] = Form(None),
+    isFeatured: Optional[str] = Form(None),  # camelCase (string)
+    is_featured: Optional[str] = Form(None),  # snake_case (string/bool-ish)
+    isAvailable: Optional[str] = Form(None),  # camelCase (string)
+    is_available: Optional[str] = Form(None),  # snake_case (string/bool-ish)
+    meta_title: Optional[str] = Form(None),  # snake_case
+    metaTitle: Optional[str] = Form(None),  # camelCase
+    meta_description: Optional[str] = Form(None),  # snake_case
+    metaDescription: Optional[str] = Form(None),  # camelCase
     slug: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),  # JSON string array of variants
     # Image files (can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
-    primaryIndex: Optional[int] = Form(None),  # Index of primary image
+    primaryIndex: Optional[int] = Form(None),  # camelCase
+    primary_index: Optional[int] = Form(None),  # snake_case
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -231,6 +244,33 @@ async def create_product(
         # Single file (UploadFile or similar) -> wrap in list
         image_files = [images]
 
+    # Normalize field variants
+    categoryId = categoryId or category_id
+    brand_id = brand_id or brandId
+    company_id = company_id or companyId
+    sellingPrice = sellingPrice if sellingPrice is not None else selling_price
+    stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
+    minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
+    piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    isFeatured = isFeatured if isFeatured is not None else is_featured
+    isAvailable = isAvailable if isAvailable is not None else is_available
+    meta_title = meta_title if meta_title is not None else metaTitle
+    meta_description = meta_description if meta_description is not None else metaDescription
+    primaryIndex = primaryIndex if primaryIndex is not None else primary_index
+
+    # Required fields (accept either casing variants)
+    if mrp is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mrp is required")
+    if sellingPrice is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sellingPrice/selling_price is required")
+    if not unit:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unit is required")
+
+    # Defaults
+    stockQuantity = int(stockQuantity) if stockQuantity is not None else 0
+    minOrderQuantity = int(minOrderQuantity) if minOrderQuantity is not None else 1
+    piecesPerSet = int(piecesPerSet) if piecesPerSet is not None else 1
+
     # Validate selling price <= mrp
     if sellingPrice > mrp:
         raise HTTPException(
@@ -239,8 +279,8 @@ async def create_product(
         )
     
     # Parse boolean fields (form data sends as strings)
-    is_featured = isFeatured.lower() in ('true', '1', 'yes') if isFeatured else False
-    is_available = isAvailable.lower() in ('true', '1', 'yes') if isAvailable else True
+    is_featured_bool = str(isFeatured).lower() in ('true', '1', 'yes') if isFeatured is not None else False
+    is_available_bool = str(isAvailable).lower() in ('true', '1', 'yes') if isAvailable is not None else True
     
     # Parse JSON fields
     specs_dict = None
@@ -323,8 +363,8 @@ async def create_product(
         unit=unit,
         pieces_per_set=piecesPerSet,
         specifications=specs_dict,
-        is_featured=is_featured,
-        is_available=is_available,
+        is_featured=is_featured_bool,
+        is_available=is_available_bool,
         meta_title=meta_title,
         meta_description=meta_description,
         # created_by column is String(36); ensure we store a string
@@ -440,24 +480,36 @@ async def update_product(
     name: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     categoryId: Optional[str] = Form(None),
+    category_id: Optional[str] = Form(None),
     brand_id: Optional[str] = Form(None),
+    brandId: Optional[str] = Form(None),
     company_id: Optional[str] = Form(None),
+    companyId: Optional[str] = Form(None),
     mrp: Optional[Decimal] = Form(None),
     sellingPrice: Optional[Decimal] = Form(None),
+    selling_price: Optional[Decimal] = Form(None),
     stockQuantity: Optional[int] = Form(None),
+    stock_quantity: Optional[int] = Form(None),
     minOrderQuantity: Optional[int] = Form(None),
+    min_order_quantity: Optional[int] = Form(None),
     unit: Optional[str] = Form(None),
     piecesPerSet: Optional[int] = Form(None),
+    pieces_per_set: Optional[int] = Form(None),
     specifications: Optional[str] = Form(None),
     isFeatured: Optional[str] = Form(None),
+    is_featured: Optional[str] = Form(None),
     isAvailable: Optional[str] = Form(None),
+    is_available: Optional[str] = Form(None),
     meta_title: Optional[str] = Form(None),
+    metaTitle: Optional[str] = Form(None),
     meta_description: Optional[str] = Form(None),
+    metaDescription: Optional[str] = Form(None),
     slug: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
     # Image files (optional, can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
     primaryIndex: Optional[int] = Form(None),
+    primary_index: Optional[int] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -488,15 +540,29 @@ async def update_product(
 
     update_data: dict = {}
 
+    # Normalize field variants (prefer explicit camelCase if present, else snake_case)
+    categoryId = categoryId if categoryId is not None else category_id
+    brand_id = brand_id if brand_id is not None else brandId
+    company_id = company_id if company_id is not None else companyId
+    sellingPrice = sellingPrice if sellingPrice is not None else selling_price
+    stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
+    minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
+    piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    isFeatured = isFeatured if isFeatured is not None else is_featured
+    isAvailable = isAvailable if isAvailable is not None else is_available
+    meta_title = meta_title if meta_title is not None else metaTitle
+    meta_description = meta_description if meta_description is not None else metaDescription
+    primaryIndex = primaryIndex if primaryIndex is not None else primary_index
+
     # Parse booleans
     if isFeatured is not None:
-        is_featured = isFeatured.lower() in ("true", "1", "yes")
-        product.is_featured = is_featured
-        update_data["is_featured"] = is_featured
+        is_featured_bool = str(isFeatured).lower() in ("true", "1", "yes")
+        product.is_featured = is_featured_bool
+        update_data["is_featured"] = is_featured_bool
     if isAvailable is not None:
-        is_available = isAvailable.lower() in ("true", "1", "yes")
-        product.is_available = is_available
-        update_data["is_available"] = is_available
+        is_available_bool = str(isAvailable).lower() in ("true", "1", "yes")
+        product.is_available = is_available_bool
+        update_data["is_available"] = is_available_bool
 
     # Parse JSON specifications
     if specifications is not None:
@@ -833,7 +899,10 @@ async def upload_product_images(
     db: Session = Depends(get_db)
 ):
     """Upload product images"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    # Product.id is String(36) in DB
+    product_id_str = str(product_id).strip()
+    product_id_no_dashes = product_id_str.replace("-", "")
+    product = db.query(Product).filter(Product.id.in_([product_id_str, product_id_no_dashes])).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -843,7 +912,7 @@ async def upload_product_images(
     
     uploaded_images = []
     max_display_order = db.query(func.max(ProductImage.display_order)).filter(
-        ProductImage.product_id == product_id
+        ProductImage.product_id == product.id
     ).scalar() or 0
     
     for idx, image in enumerate(images):
@@ -852,7 +921,7 @@ async def upload_product_images(
         image_url = f"https://cdn.dely.com/products/{product_id}/{image.filename}"
         
         product_image = ProductImage(
-            product_id=product_id,
+            product_id=product.id,
             image_url=image_url,
             display_order=max_display_order + idx + 1,
             is_primary=(primary_index is not None and idx == primary_index)

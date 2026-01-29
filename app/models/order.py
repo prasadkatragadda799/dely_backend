@@ -36,7 +36,10 @@ class Order(Base):
     discount = Column(Numeric(10, 2), default=0.0, nullable=False)
     delivery_charge = Column(Numeric(10, 2), default=0.0, nullable=False)
     tax = Column(Numeric(10, 2), default=0.0, nullable=False)
-    total_amount = Column(Numeric(10, 2), nullable=False)  # Renamed from 'total'
+    # Backward/forward compatibility:
+    # - Original DB schema uses `total` (NOT NULL)
+    # - Later migrations added `total_amount` (may be NULL in existing DBs)
+    total_amount = Column(Numeric(10, 2), nullable=True)
     tracking_number = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
@@ -44,8 +47,8 @@ class Order(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
-    # Legacy field for backward compatibility
-    total = Column(Numeric(10, 2), nullable=True)  # Deprecated, use total_amount
+    # DB-required field (original schema)
+    total = Column(Numeric(10, 2), nullable=False)
     
     # Relationships
     user = relationship("User", back_populates="orders")

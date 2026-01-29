@@ -2,6 +2,7 @@
 Admin KYC Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, String, cast
 from typing import Optional
@@ -16,6 +17,12 @@ from app.models.kyc_document import KYCDocument
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.models.admin import Admin
+from app.config import settings
+from pathlib import Path
+import io
+import zipfile
+from urllib.parse import urlparse
+import requests
 
 router = APIRouter()
 
@@ -248,21 +255,16 @@ async def get_kyc_by_user_id(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Query KYC by user_id
-    # Note: KYC.user_id is UUID, User.id is String(36)
-    # Convert user.id to UUID for comparison
-    try:
-        from uuid import UUID as UUIDType
-        user_uuid = UUIDType(str(user.id))
-        # Get the most recent KYC submission for this user
-        kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-            KYC.user_id == user_uuid
-        ).order_by(KYC.created_at.desc()).first()
-    except (ValueError, AttributeError):
-        # If UUID conversion fails, try using cast
-        kyc = db.query(KYC).options(joinedload(KYC.user)).filter(
-            cast(KYC.user_id, String) == str(user.id)
-        ).order_by(KYC.created_at.desc()).first()
+    # Query KYC by user_id (KYC.user_id and User.id are String(36))
+    user_id_full = str(user.id).strip()
+    user_id_no_dashes = user_id_full.replace("-", "")
+    kyc = (
+        db.query(KYC)
+        .options(joinedload(KYC.user))
+        .filter(KYC.user_id.in_([user_id_full, user_id_no_dashes]))
+        .order_by(KYC.created_at.desc())
+        .first()
+    )
     
     if not kyc:
         raise HTTPException(status_code=404, detail="KYC submission not found for this user")
@@ -308,6 +310,12 @@ async def get_kyc_by_user_id(
         "verifiedBy": str(user.kyc_verified_by) if hasattr(user, 'kyc_verified_by') and user.kyc_verified_by else None,
         "verified_by": str(user.kyc_verified_by) if hasattr(user, 'kyc_verified_by') and user.kyc_verified_by else None
     }
+
+    # Include KYC image URLs (for profile modal / quick preview)
+    kyc_data["shopImageUrl"] = kyc.shop_image_url
+    kyc_data["shop_image_url"] = kyc.shop_image_url
+    kyc_data["fssaiLicenseImageUrl"] = kyc.fssai_license_image_url
+    kyc_data["fssai_license_image_url"] = kyc.fssai_license_image_url
     
     # Add rejection info if status is rejected
     if kyc.status == KYCStatus.REJECTED:
@@ -345,12 +353,8 @@ async def get_kyc_details(
     if not user:
         raise HTTPException(status_code=404, detail="User not found for this KYC submission")
     
-    # Get KYC documents
-    # Note: KYCDocument.user_id is UUID, User.id is String(36)
-    # Use cast to convert UUID to string for comparison
-    documents = db.query(KYCDocument).filter(
-        cast(KYCDocument.user_id, String) == str(user.id)
-    ).all()
+    # Get KYC documents (KYCDocument.user_id is String(36) like users.id)
+    documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
     
     # Format address
     address = kyc.address if isinstance(kyc.address, dict) else {}
@@ -584,12 +588,8 @@ async def get_kyc_documents(
     if not user:
         raise HTTPException(status_code=404, detail="User not found for this KYC submission")
     
-    # Get KYC documents
-    # Note: KYCDocument.user_id is UUID, User.id is String(36)
-    # Use cast to convert UUID to string for comparison
-    documents = db.query(KYCDocument).filter(
-        cast(KYCDocument.user_id, String) == str(user.id)
-    ).all()
+    # Get KYC documents (KYCDocument.user_id is String(36) like users.id)
+    documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
     
     # Format documents
     document_list = []
@@ -611,6 +611,26 @@ async def get_kyc_documents(
             "uploadedAt": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
             "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
         })
+
+    # Include dedicated image URL fields from the KYC record if present
+    if getattr(kyc, "shop_image_url", None):
+        document_list.append({
+            "id": "kyc-shop_image",
+            "type": "shop_image",
+            "name": "Shop Image",
+            "url": kyc.shop_image_url,
+            "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+            "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
+        })
+    if getattr(kyc, "fssai_license_image_url", None):
+        document_list.append({
+            "id": "kyc-fssai_license_image",
+            "type": "fssai_license_image",
+            "name": "FSSAI License Image",
+            "url": kyc.fssai_license_image_url,
+            "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
+            "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
+        })
     
     # Also check if documents are stored in KYC.documents JSON field
     if kyc.documents and isinstance(kyc.documents, dict):
@@ -629,5 +649,157 @@ async def get_kyc_documents(
         success=True,
         data=document_list,
         message="KYC documents retrieved successfully"
+    )
+
+
+@router.get("/{kyc_id}/documents/download")
+async def download_kyc_documents_zip(
+    kyc_id: UUID,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    Download all available KYC documents as a single ZIP file.
+    Useful for admin UIs because browsers can block multi-downloads.
+    """
+    # Reuse the same lookup logic as get_kyc_documents
+    kyc = (
+        db.query(KYC)
+        .options(joinedload(KYC.user))
+        .filter(KYC.id == str(kyc_id))
+        .first()
+    )
+    if not kyc:
+        raise HTTPException(status_code=404, detail="KYC submission not found")
+
+    user = kyc.user
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this KYC submission")
+
+    documents = db.query(KYCDocument).filter(KYCDocument.user_id == str(user.id)).all()
+
+    # Build the same flat list of doc dicts
+    doc_type_map = {
+        "gst_certificate": "GST Certificate",
+        "pan_card": "PAN Card",
+        "business_license": "Business License",
+        "other": "Other Document",
+    }
+    doc_items: list[dict] = []
+    for doc in documents:
+        doc_name = doc_type_map.get(doc.document_type, doc.document_type.replace("_", " ").title())
+        doc_items.append({"type": doc.document_type, "name": doc_name, "url": doc.document_url})
+
+    if getattr(kyc, "shop_image_url", None):
+        doc_items.append({"type": "shop_image", "name": "Shop Image", "url": kyc.shop_image_url})
+    if getattr(kyc, "fssai_license_image_url", None):
+        doc_items.append({"type": "fssai_license_image", "name": "FSSAI License Image", "url": kyc.fssai_license_image_url})
+
+    if kyc.documents and isinstance(kyc.documents, dict):
+        for doc_key, doc_url in kyc.documents.items():
+            if isinstance(doc_url, str) and doc_url:
+                doc_items.append({"type": doc_key, "name": doc_key.replace("_", " ").title(), "url": doc_url})
+
+    # Filter to valid URLs/paths
+    doc_items = [d for d in doc_items if isinstance(d.get("url"), str) and d["url"]]
+    if not doc_items:
+        raise HTTPException(status_code=404, detail="No documents available for this KYC submission")
+
+    def _infer_ext(u: str) -> str:
+        try:
+            p = urlparse(u)
+            path = p.path or ""
+        except Exception:
+            path = u
+        last = (path.split("/")[-1] if path else "").split("?")[0]
+        if "." in last:
+            ext = "." + last.split(".")[-1][:10]
+            return ext if len(ext) <= 10 else ".bin"
+        return ".bin"
+
+    def _local_upload_path(u: str) -> Optional[Path]:
+        # Map /uploads/<relpath> URLs to disk path under settings.UPLOAD_DIR
+        try:
+            p = urlparse(u)
+            path = p.path or ""
+        except Exception:
+            path = u or ""
+
+        marker = "/uploads/"
+        if path.startswith(marker):
+            rel = path[len(marker):].lstrip("/")
+        elif marker in path:
+            rel = path.split(marker, 1)[1].lstrip("/")
+        else:
+            return None
+
+        uploads_dir = Path(settings.UPLOAD_DIR)
+        candidate = (uploads_dir / rel).resolve()
+        try:
+            uploads_dir_resolved = uploads_dir.resolve()
+            if uploads_dir_resolved not in candidate.parents and candidate != uploads_dir_resolved:
+                return None
+        except Exception:
+            # If resolve fails, fall back to basic behavior
+            pass
+        return candidate
+
+    buf = io.BytesIO()
+    missing: list[str] = []
+    used_names: set[str] = set()
+
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, doc in enumerate(doc_items, start=1):
+            url = doc["url"]
+            base_name = (doc.get("type") or f"document_{idx}").replace(" ", "_")
+            ext = _infer_ext(url)
+            filename = f"{base_name}{ext}"
+            # Ensure unique filenames
+            counter = 2
+            while filename in used_names:
+                filename = f"{base_name}_{counter}{ext}"
+                counter += 1
+            used_names.add(filename)
+
+            data: Optional[bytes] = None
+
+            local_path = _local_upload_path(url)
+            if local_path and local_path.exists() and local_path.is_file():
+                try:
+                    data = local_path.read_bytes()
+                except Exception as e:
+                    missing.append(f"{filename}: failed to read local file ({e})")
+                    continue
+            else:
+                # Fetch remote URL (best-effort)
+                try:
+                    resp = requests.get(url, timeout=20)
+                    if resp.status_code == 200:
+                        data = resp.content
+                    else:
+                        missing.append(f"{filename}: HTTP {resp.status_code} from {url}")
+                        continue
+                except Exception as e:
+                    missing.append(f"{filename}: failed to fetch {url} ({e})")
+                    continue
+
+            if data is None:
+                missing.append(f"{filename}: no data")
+                continue
+
+            zf.writestr(filename, data)
+
+        if missing:
+            zf.writestr("errors.txt", "\n".join(missing).encode("utf-8"))
+
+    if not used_names:
+        raise HTTPException(status_code=404, detail="No downloadable documents available for this KYC submission")
+
+    buf.seek(0)
+    zip_name = f"kyc-{str(kyc_id)}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )
 
