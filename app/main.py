@@ -202,6 +202,11 @@ app.include_router(admin_management.router, prefix="/admin/admins", tags=["Admin
 app.include_router(admin_invoices.router, prefix="/admin/orders", tags=["Admin Invoices"])
 app.include_router(admin_delivery.router, prefix="/admin/delivery", tags=["Admin Delivery"])
 app.include_router(delivery_auth.router, prefix="/delivery/auth", tags=["Delivery Authentication"])
+app.include_router(
+    delivery_auth.router,
+    prefix="/api/v1/delivery/auth",
+    tags=["Delivery Authentication"],
+)
 app.include_router(delivery_orders.router, prefix="/delivery/orders", tags=["Delivery Orders"])
 
 # Serve uploaded files statically
