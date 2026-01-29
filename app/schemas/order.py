@@ -60,7 +60,8 @@ class OrderListResponse(BaseModel):
     order_number: str
     status: str
     total: Decimal
-    items_count: int
+    # Some ORM Order objects don't expose items_count; default to 0 instead of failing validation.
+    items_count: int = 0
     created_at: datetime
     
     class Config:
