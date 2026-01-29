@@ -22,7 +22,8 @@ def calculate_order_totals(items: list, db: Session) -> dict:
     discount = Decimal('0.00')
     
     for item in items:
-        product = db.query(Product).filter(Product.id == item['product_id']).first()
+        # `products.id` is String(36) in DB; request schemas may provide UUID objects
+        product = db.query(Product).filter(Product.id == str(item["product_id"])).first()
         if not product:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
