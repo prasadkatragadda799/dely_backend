@@ -556,7 +556,7 @@ async def cancel_order(
 
 @router.get("/{order_id}/invoice", response_model=ResponseModel)
 async def get_order_invoice(
-    order_id: UUID,
+    order_id: str,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db),
     request: Request = None
@@ -565,9 +565,14 @@ async def get_order_invoice(
     from app.api.v1.orders import get_invoice as get_user_invoice
     from app.api.deps import get_current_user
     
-    # Get order to verify it exists
-    order_id_str = str(order_id)
-    order = db.query(Order).filter(Order.id == order_id_str).first()
+    # Accept either UUID (order id) OR order_number like "DELY..."
+    from uuid import UUID as UUIDType
+    order_id_str = str(order_id).strip()
+    try:
+        UUIDType(order_id_str)
+        order = db.query(Order).filter(Order.id == order_id_str).first()
+    except (ValueError, AttributeError):
+        order = db.query(Order).filter(Order.order_number == order_id_str).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     

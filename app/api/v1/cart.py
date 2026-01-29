@@ -201,6 +201,25 @@ def add_to_cart(
     )
 
 
+def _clear_cart_for_user(db: Session, user_id: str) -> None:
+    db.query(Cart).filter(Cart.user_id == str(user_id)).delete()
+    db.commit()
+
+
+@router.delete("", response_model=ResponseModel)
+def clear_cart_root(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear all items from cart (preferred endpoint: DELETE /api/v1/cart)"""
+    _clear_cart_for_user(db, str(current_user.id))
+    return ResponseModel(success=True, message="Cart cleared")
+
+
+@router.delete("/clear", response_model=ResponseModel)
+def clear_cart(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear all items from cart (legacy alias: DELETE /api/v1/cart/clear)"""
+    _clear_cart_for_user(db, str(current_user.id))
+    return ResponseModel(success=True, message="Cart cleared")
+
+
 @router.put("/{cart_item_id}", response_model=ResponseModel)
 def update_cart_item(
     cart_item_id: UUID,
@@ -254,13 +273,3 @@ def remove_from_cart(
     db.commit()
     
     return ResponseModel(success=True, message="Item removed from cart")
-
-
-@router.delete("/clear", response_model=ResponseModel)
-def clear_cart(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Clear all items from cart"""
-    db.query(Cart).filter(Cart.user_id == str(current_user.id)).delete()
-    db.commit()
-    
-    return ResponseModel(success=True, message="Cart cleared")
-

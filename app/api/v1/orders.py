@@ -179,16 +179,29 @@ def get_order(
 
 @router.get("/{order_id}/invoice", response_model=ResponseModel)
 def get_invoice(
-    order_id: UUID,
+    order_id: str,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get invoice for an order"""
-    # Get order
-    order = db.query(Order).filter(
-        Order.id == str(order_id),
-        Order.user_id == str(current_user.id)
-    ).first()
+    # Accept either UUID (order id) OR order_number like "DELY..."
+    from uuid import UUID as UUIDType
+
+    order = None
+    order_id_str = str(order_id).strip()
+    try:
+        # If it's a UUID, query by id
+        UUIDType(order_id_str)
+        order = db.query(Order).filter(
+            Order.id == order_id_str,
+            Order.user_id == str(current_user.id)
+        ).first()
+    except (ValueError, AttributeError):
+        # Otherwise treat as order_number
+        order = db.query(Order).filter(
+            Order.order_number == order_id_str,
+            Order.user_id == str(current_user.id)
+        ).first()
     
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
