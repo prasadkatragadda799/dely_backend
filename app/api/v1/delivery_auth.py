@@ -3,7 +3,7 @@ Delivery Person Authentication Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime
 from app.database import get_db
 from app.schemas.delivery import DeliveryLogin, DeliveryPersonResponse
 from app.schemas.common import ResponseModel
@@ -149,7 +149,9 @@ async def get_delivery_person_info(
             "vehicleNumber": delivery_person.vehicle_number,
             "vehicleType": delivery_person.vehicle_type,
             "isAvailable": delivery_person.is_available,
+            "is_available": delivery_person.is_available,  # snake_case alias
             "isOnline": delivery_person.is_online,
+            "is_online": delivery_person.is_online,  # snake_case alias
             "currentLatitude": delivery_person.current_latitude,
             "currentLongitude": delivery_person.current_longitude
         },

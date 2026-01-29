@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.schemas.common import ResponseModel
-from app.schemas.delivery import DeliveryOrderResponse, DeliveryStatusUpdate, LocationUpdate
+from app.schemas.delivery import DeliveryOrderResponse, DeliveryStatusUpdate, LocationUpdate, AvailabilityRequest
 from app.models.order import Order, OrderStatus
 from app.models.delivery_person import DeliveryPerson
 from app.api.v1.delivery_auth import get_current_delivery_person
@@ -249,19 +249,32 @@ async def update_location(
 
 @router.post("/availability", response_model=ResponseModel)
 async def toggle_availability(
-    available: bool,
+    request: AvailabilityRequest,
     delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
     db: Session = Depends(get_db)
 ):
-    """Toggle delivery person's availability for new orders"""
-    delivery_person.is_available = available
-    db.commit()
-    
-    return ResponseModel(
-        success=True,
-        data={
-            "isAvailable": delivery_person.is_available,
-            "is_available": delivery_person.is_available
-        },
-        message=f"Availability set to {'available' if available else 'unavailable'}"
-    )
+    """
+    Toggle delivery person's availability for new orders.
+    Accepts JSON body: { "available": true/false }
+    """
+    try:
+        # Update availability status
+        delivery_person.is_available = request.available
+        db.commit()
+        db.refresh(delivery_person)
+        
+        return ResponseModel(
+            success=True,
+            message="Availability updated successfully",
+            data={
+                "isAvailable": delivery_person.is_available,
+                "is_available": delivery_person.is_available,
+                "deliveryPersonId": delivery_person.id
+            }
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update availability: {str(e)}"
+        )

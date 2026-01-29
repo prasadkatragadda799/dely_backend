@@ -56,6 +56,11 @@ class DeliveryPersonUpdate(BaseModel):
     isAvailable: Optional[bool] = None
 
 
+# Availability Toggle
+class AvailabilityRequest(BaseModel):
+    available: bool
+
+
 # Location Update
 class LocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
