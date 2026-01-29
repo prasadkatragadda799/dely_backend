@@ -1,15 +1,15 @@
 """
 Delivery Person Schemas
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, AliasChoices
 from typing import Optional, List
 from datetime import datetime
 
 
 # Delivery Person Authentication
 class DeliveryLogin(BaseModel):
-    phone: str
-    password: str
+    phone: str = Field(validation_alias=AliasChoices("phone", "phoneNumber", "phone_number"))
+    password: str = Field(validation_alias=AliasChoices("password", "pass"))
 
 
 class DeliveryPersonResponse(BaseModel):

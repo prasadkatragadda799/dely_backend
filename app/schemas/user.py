@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, AliasChoices, model_validator
 from typing import Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -60,14 +60,40 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    password: str
-    
-    def __init__(self, **data):
-        super().__init__(**data)
-        if not self.email and not self.phone:
-            raise ValueError("Either email or phone must be provided")
+    # Accept common client field-name variants.
+    email: Optional[EmailStr] = Field(
+        default=None,
+        validation_alias=AliasChoices("email", "username"),
+    )
+    phone: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("phone", "phoneNumber", "phone_number"),
+    )
+    # Some clients send a single identifier field; backend will treat it as phone if it looks numeric,
+    # otherwise as email.
+    identifier: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("identifier", "login", "user"),
+    )
+    password: str = Field(
+        ...,
+        validation_alias=AliasChoices("password", "pass"),
+    )
+
+    @model_validator(mode="after")
+    def _ensure_identifier_present(self):
+        if (self.email is None or str(self.email).strip() == "") and (self.phone is None or str(self.phone).strip() == ""):
+            if self.identifier and str(self.identifier).strip():
+                raw = str(self.identifier).strip()
+                # If it contains only digits/+ prefix, treat as phone; else treat as email.
+                if raw.lstrip("+").isdigit():
+                    self.phone = raw
+                else:
+                    # Let EmailStr validation run on next parse; here we just set the string.
+                    self.email = raw  # type: ignore[assignment]
+        if (self.email is None or str(self.email).strip() == "") and (self.phone is None or str(self.phone).strip() == ""):
+            raise ValueError("Either email/username, phone/phoneNumber, or identifier must be provided")
+        return self
 
 
 class ChangePassword(BaseModel):
