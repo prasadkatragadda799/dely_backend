@@ -60,8 +60,14 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    # Accept common client field-name variants.
-    email: Optional[EmailStr] = Field(
+    """
+    Flexible login schema:
+    - Frontend sends a single `email` field that may actually contain email OR phone.
+    - Also accepts explicit `phone`, `phoneNumber`, `phone_number`, or `identifier`.
+    """
+
+    # Raw fields from client
+    email: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("email", "username"),
     )
@@ -69,8 +75,6 @@ class UserLogin(BaseModel):
         default=None,
         validation_alias=AliasChoices("phone", "phoneNumber", "phone_number"),
     )
-    # Some clients send a single identifier field; backend will treat it as phone if it looks numeric,
-    # otherwise as email.
     identifier: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("identifier", "login", "user"),
@@ -81,18 +85,32 @@ class UserLogin(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _ensure_identifier_present(self):
-        if (self.email is None or str(self.email).strip() == "") and (self.phone is None or str(self.phone).strip() == ""):
+    def _normalize_identifier(self):
+        """
+        Normalise login input so that:
+        - If `email` looks like a phone and `phone` is empty, treat it as phone.
+        - If `identifier` is provided, route it to email or phone based on contents.
+        """
+        # If frontend sends a phone in `email` (common "emailOrPhone" pattern)
+        if self.email and not self.phone:
+            raw = str(self.email).strip()
+            if raw and raw.lstrip("+").isdigit() and "@" not in raw:
+                # Treat this as phone login
+                self.phone = raw
+                self.email = None
+
+        # If we still have neither, try identifier
+        if (not self.email or str(self.email).strip() == "") and (not self.phone or str(self.phone).strip() == ""):
             if self.identifier and str(self.identifier).strip():
                 raw = str(self.identifier).strip()
-                # If it contains only digits/+ prefix, treat as phone; else treat as email.
-                if raw.lstrip("+").isdigit():
+                if raw.lstrip("+").isdigit() and "@" not in raw:
                     self.phone = raw
                 else:
-                    # Let EmailStr validation run on next parse; here we just set the string.
-                    self.email = raw  # type: ignore[assignment]
-        if (self.email is None or str(self.email).strip() == "") and (self.phone is None or str(self.phone).strip() == ""):
-            raise ValueError("Either email/username, phone/phoneNumber, or identifier must be provided")
+                    self.email = raw
+
+        if (not self.email or str(self.email).strip() == "") and (not self.phone or str(self.phone).strip() == ""):
+            raise ValueError("Either email/username or phone/phoneNumber must be provided")
+
         return self
 
 
