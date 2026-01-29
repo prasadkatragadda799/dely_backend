@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -21,9 +21,9 @@ class OrderCreate(BaseModel):
 
 class OrderItemResponse(BaseModel):
     id: UUID
-    product_id: UUID
+    product_id: Optional[UUID] = None
     quantity: int
-    price: Decimal
+    price: Optional[Decimal] = None
     subtotal: Decimal
     product_name: Optional[str] = None
     
@@ -34,9 +34,13 @@ class OrderItemResponse(BaseModel):
 class OrderResponse(BaseModel):
     id: UUID
     order_number: str
-    user_id: UUID
+    user_id: Optional[UUID] = None
     status: str
-    items: List[OrderItemResponse]
+    # IMPORTANT:
+    # - SQLAlchemy `Order` model has a legacy `items` JSON column that may be NULL
+    # - The real list lives in the `order_items` relationship
+    # So validate from `order_items` and always default to an empty list.
+    items: List[OrderItemResponse] = Field(default_factory=list, validation_alias="order_items")
     delivery_address: Dict[str, Any]
     payment_method: str
     subtotal: Decimal
