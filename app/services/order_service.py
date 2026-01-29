@@ -30,20 +30,38 @@ def calculate_order_totals(items: list, db: Session) -> dict:
                 detail=f"Product {item['product_id']} not found"
             )
         
-        if product.stock < item['quantity']:
+        qty = int(item["quantity"])
+
+        # Prefer new fields; fall back to legacy fields for older records.
+        stock_available = (
+            int(product.stock_quantity)
+            if getattr(product, "stock_quantity", None) is not None
+            else int(getattr(product, "stock", 0) or 0)
+        )
+        min_order_qty = (
+            int(product.min_order_quantity)
+            if getattr(product, "min_order_quantity", None) is not None
+            else int(getattr(product, "min_order", 1) or 1)
+        )
+
+        selling_price = getattr(product, "selling_price", None) or getattr(product, "price", None)
+        mrp = getattr(product, "mrp", None) or getattr(product, "original_price", None) or selling_price
+
+        if stock_available < qty:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Insufficient stock for product {product.name}"
             )
         
-        if item['quantity'] < product.min_order:
+        if qty < min_order_qty:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Minimum order quantity for {product.name} is {product.min_order}"
             )
         
-        item_subtotal = product.price * item['quantity']
-        item_discount = (product.original_price - product.price) * item['quantity']
+        # Numeric columns are usually Decimal already; keep math in Decimal.
+        item_subtotal = selling_price * qty
+        item_discount = (mrp - selling_price) * qty if mrp and selling_price else Decimal("0.00")
         subtotal += item_subtotal
         discount += item_discount
     
