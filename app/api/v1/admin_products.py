@@ -39,7 +39,7 @@ router = APIRouter()
 @router.get("", response_model=ResponseModel)
 async def list_products(
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=10000),  # Increased max limit for admin panel bulk operations
     search: Optional[str] = None,
     category: Optional[UUID] = None,
     company: Optional[UUID] = None,
