@@ -27,5 +27,17 @@ if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
 fi
 
 echo "Starting application..."
-exec gunicorn app.main:app --bind 0.0.0.0:$PORT --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --keep-alive 5
+
+# Render (and most PaaS) expose the app on a single port.
+# Default to 10000 if PORT is not explicitly set so the container
+# always binds to a known port for health checks/port scanning.
+PORT="${PORT:-10000}"
+echo "Binding Gunicorn to 0.0.0.0:${PORT}"
+
+exec gunicorn app.main:app \
+  --bind "0.0.0.0:${PORT}" \
+  --workers 2 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --timeout 120 \
+  --keep-alive 5
 

@@ -23,8 +23,8 @@ COPY . .
 # Make startup script executable
 RUN chmod +x start.sh
 
-# Expose port
-EXPOSE $PORT
+# Expose the default web port used by Render Docker services
+EXPOSE 10000
 
 # Start application
 CMD ["./start.sh"]

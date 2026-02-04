@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
@@ -114,7 +114,8 @@ app.add_middleware(
 # Exception Handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors"""
+    """Handle Pydantic/validation errors with a consistent JSON shape."""
+
     # Convert errors to JSON-serializable format
     def sanitize_error(error):
         """Convert error dict to JSON-serializable format"""
@@ -123,15 +124,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         elif isinstance(error, list):
             return [sanitize_error(item) for item in error]
         elif isinstance(error, bytes):
-            return error.decode('utf-8', errors='replace')
+            return error.decode("utf-8", errors="replace")
         elif isinstance(error, (str, int, float, bool, type(None))):
             return error
         else:
             return str(error)
-    
+
     errors = exc.errors()
     sanitized_errors = sanitize_error(errors)
-    
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -139,9 +140,41 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": "Validation error",
             "error": {
                 "code": "VALIDATION_ERROR",
-                "details": sanitized_errors
-            }
-        }
+                "details": sanitized_errors,
+            },
+        },
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Normalize HTTPException responses so mobile apps always receive a
+    top-level `message` field (and optional `error` details).
+    """
+    message = None
+    error_payload = None
+
+    # FastAPI commonly uses `detail` as a string or dict.
+    if isinstance(exc.detail, str):
+        message = exc.detail
+    elif isinstance(exc.detail, dict):
+        # If a custom handler already set `message`, prefer that.
+        message = exc.detail.get("message") or exc.detail.get("detail") or "Request error"
+        # Keep remaining keys under `error` for debugging if needed.
+        error_payload = {k: v for k, v in exc.detail.items() if k != "message"}
+    else:
+        message = "Request error"
+        error_payload = {"detail": str(exc.detail)}
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": message,
+            "error": error_payload,
+        },
+        headers=exc.headers or {},
     )
 
 
@@ -150,7 +183,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     """Handle general exceptions"""
     # Log the error
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -158,9 +191,9 @@ async def general_exception_handler(request: Request, exc: Exception):
             "message": "Internal server error",
             "error": {
                 "code": "SERVER_ERROR",
-                "details": str(exc) if settings.DEBUG else "An error occurred"
-            }
-        }
+                "details": str(exc) if settings.DEBUG else "An error occurred",
+            },
+        },
     )
 
 
