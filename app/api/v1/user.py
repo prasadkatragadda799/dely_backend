@@ -31,11 +31,21 @@ def get_profile(
     business_city = None
     business_state = None
     business_pincode = None
+    latitude = None
+    longitude = None
     if current_user.address and isinstance(current_user.address, dict):
         business_address = current_user.address.get("address") or current_user.address.get("business_address")
         business_city = current_user.address.get("city") or current_user.address.get("business_city")
         business_state = current_user.address.get("state") or current_user.address.get("business_state")
         business_pincode = current_user.address.get("pincode") or current_user.address.get("business_pincode")
+        latitude = current_user.address.get("latitude")
+        longitude = current_user.address.get("longitude")
+
+    # Derive plain profile location fields expected by mobile app
+    city_value = current_user.city or business_city
+    state_value = current_user.state or business_state
+    pincode_value = current_user.pincode or business_pincode
+    address_value = business_address
     
     # Get KYC submission date from KYC records
     kyc_submitted_at = None
@@ -70,6 +80,14 @@ def get_profile(
         "businessState": business_state,  # camelCase alternative
         "business_pincode": business_pincode,
         "businessPincode": business_pincode,  # camelCase alternative
+        # Plain location fields for EditProfileScreen
+        "city": city_value,
+        "state": state_value,
+        "pincode": pincode_value,
+        "pin_code": pincode_value,
+        "address": address_value,
+        "latitude": latitude,
+        "longitude": longitude,
         "avatar_url": None,  # Not implemented yet, can be added later
         "avatarUrl": None,  # camelCase alternative
         "kyc_status": kyc_status,
@@ -168,6 +186,12 @@ def update_profile(
         if user_data.business_type not in ["Retail", "Wholesale", "Distributor"]:
             raise HTTPException(status_code=400, detail="Business type must be Retail, Wholesale, or Distributor")
         address_dict["business_type"] = user_data.business_type
+
+    # Optional GPS coordinates from mobile app's "Get from GPS"
+    if user_data.latitude is not None:
+        address_dict["latitude"] = user_data.latitude
+    if user_data.longitude is not None:
+        address_dict["longitude"] = user_data.longitude
     
     if address_dict:
         current_user.address = address_dict
@@ -264,12 +288,21 @@ def update_profile(
     business_state = None
     business_pincode = None
     business_type = None
+    latitude = None
+    longitude = None
     if current_user.address and isinstance(current_user.address, dict):
         business_address = current_user.address.get("business_address") or current_user.address.get("address")
         business_city = current_user.address.get("business_city") or current_user.address.get("city")
         business_state = current_user.address.get("business_state") or current_user.address.get("state")
         business_pincode = current_user.address.get("business_pincode") or current_user.address.get("pincode")
         business_type = current_user.address.get("business_type")
+        latitude = current_user.address.get("latitude")
+        longitude = current_user.address.get("longitude")
+
+    city_value = current_user.city or business_city
+    state_value = current_user.state or business_state
+    pincode_value = current_user.pincode or business_pincode
+    address_value = business_address
     
     profile_data = {
         "id": current_user.id,
@@ -301,6 +334,14 @@ def update_profile(
         "kyc_status": kyc_status,
         "kycStatus": kyc_status,
         "is_kyc_verified": is_kyc_verified,
+        # Plain location fields for EditProfileScreen
+        "city": city_value,
+        "state": state_value,
+        "pincode": pincode_value,
+        "pin_code": pincode_value,
+        "address": address_value,
+        "latitude": latitude,
+        "longitude": longitude,
         "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
         "updated_at": current_user.updated_at.isoformat() if current_user.updated_at else None
     }
