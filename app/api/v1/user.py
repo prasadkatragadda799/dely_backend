@@ -188,7 +188,73 @@ def update_profile(
     
     db.commit()
     db.refresh(current_user)
-    
+
+    # If the user does not yet have any delivery locations, try to
+    # auto-create a default one from their updated profile address.
+    #
+    # This keeps the behaviour intuitive for the mobile app:
+    # - User fills/edit profile address (city/state/pincode/address)
+    # - Checkout screens that rely on `/api/v1/delivery` see at least
+    #   one usable delivery location instead of forcing the user to
+    #   add the same address again.
+    try:
+        from app.models.delivery_location import DeliveryLocation
+
+        has_location = (
+            db.query(DeliveryLocation)
+            .filter(DeliveryLocation.user_id == str(current_user.id))
+            .count()
+            > 0
+        )
+
+        if not has_location:
+            # Prefer business_* fields stored in address JSON, but fall
+            # back to the top-level city/state/pincode if needed.
+            derived_address = None
+            derived_city = None
+            derived_state = None
+            derived_pincode = None
+
+            if current_user.address and isinstance(current_user.address, dict):
+                derived_address = current_user.address.get("business_address") or current_user.address.get("address")
+                derived_city = current_user.address.get("business_city") or current_user.address.get("city")
+                derived_state = current_user.address.get("business_state") or current_user.address.get("state")
+                derived_pincode = current_user.address.get("business_pincode") or current_user.address.get("pincode")
+
+            # Fallbacks from user-level location fields
+            derived_city = derived_city or current_user.city
+            derived_state = derived_state or current_user.state
+            derived_pincode = derived_pincode or current_user.pincode
+
+            # Basic validation mirroring add_delivery_location rules
+            if (
+                derived_address
+                and isinstance(derived_address, str)
+                and len(derived_address.strip()) >= 5
+                and derived_city
+                and len(str(derived_city).strip()) >= 2
+                and derived_state
+                and len(str(derived_state).strip()) >= 2
+                and derived_pincode
+            ):
+                pincode_str = str(derived_pincode).strip()
+                if len(pincode_str) == 6 and pincode_str.isdigit():
+                    location = DeliveryLocation(
+                        user_id=str(current_user.id),
+                        address=derived_address.strip(),
+                        city=str(derived_city).strip(),
+                        state=str(derived_state).strip(),
+                        pincode=pincode_str,
+                        landmark=None,
+                        type="home",
+                        is_default=True,
+                    )
+                    db.add(location)
+                    db.commit()
+    except Exception:
+        # Never block profile updates because of address sync issues.
+        pass
+
     # Return updated profile with all fields
     kyc_status = current_user.kyc_status.value if hasattr(current_user.kyc_status, 'value') else str(current_user.kyc_status)
     is_kyc_verified = kyc_status == "verified"
