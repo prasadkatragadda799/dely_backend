@@ -76,7 +76,10 @@ async def list_offers(
             "updatedAt": offer.updated_at
         }
         
-        if offer.company:
+        # `offers` table currently has no `company_id` column, and the Offer model
+        # does not define a `company` relationship in this codebase. Keep this
+        # optional for forward compatibility.
+        if hasattr(offer, "company") and offer.company:
             offer_data["company"] = {
                 "id": offer.company.id,
                 "name": offer.company.name,
