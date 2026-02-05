@@ -16,6 +16,7 @@ from app.models.kyc import KYC, KYCStatus
 from app.models.kyc_document import KYCDocument
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
+from app.utils.notification_helper import create_notification
 from app.models.admin import Admin
 from app.config import settings
 from pathlib import Path
@@ -483,6 +484,19 @@ async def verify_kyc(
         request=request
     )
     
+    # Notify user
+    try:
+        create_notification(
+            db=db,
+            user_id=user.id,
+            type="kyc",
+            title="KYC verified",
+            message="Your business KYC has been verified. You can now access all features.",
+            data={"kyc_status": "verified"},
+        )
+    except Exception:
+        pass  # Do not fail the request if notification fails
+
     # Return success with updated status info
     return ResponseModel(
         success=True,
@@ -563,7 +577,20 @@ async def reject_kyc(
         details={"reason": reject_data.reason},
         request=request
     )
-    
+
+    # Notify user
+    try:
+        create_notification(
+            db=db,
+            user_id=user.id,
+            type="kyc",
+            title="KYC rejected",
+            message="Your KYC was rejected. Please resubmit with the requested changes.",
+            data={"kyc_status": "rejected"},
+        )
+    except Exception:
+        pass
+
     return ResponseModel(
         success=True,
         message="KYC rejected successfully"

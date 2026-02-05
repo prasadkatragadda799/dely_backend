@@ -18,6 +18,7 @@ from app.models.kyc_document import KYCDocument
 from app.models.product_variant import ProductVariant
 from app.models.user_activity_log import UserActivityLog
 from app.models.user_payment_method import UserPaymentMethod
+from app.models.wallet import Wallet, WalletTransaction
 from app.models.settings import Settings
 from app.models.delivery_person import DeliveryPerson
 
@@ -43,6 +44,8 @@ __all__ = [
     "ProductVariant",
     "UserActivityLog",
     "UserPaymentMethod",
+    "Wallet",
+    "WalletTransaction",
     "Settings",
     "DeliveryPerson"
 ]

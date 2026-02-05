@@ -205,14 +205,32 @@ async def update_delivery_status(
         order.notes = f"{current_notes}\n[{timestamp}] {status_update.status}: {status_update.notes}".strip()
     
     db.commit()
-    
+
+    # Notify order owner about delivery status
+    if order.user_id:
+        from app.utils.notification_helper import create_notification
+        _type = "delivery" if order.status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED) else "order"
+        _title = f"Order #{order.order_number} {order.status.value.replace('_', ' ')}"
+        _msg = f"Your order has been updated to: {order.status.value.replace('_', ' ')}."
+        try:
+            create_notification(
+                db=db,
+                user_id=order.user_id,
+                type=_type,
+                title=_title,
+                message=_msg,
+                data={"order_id": str(order.id), "order_number": order.order_number, "status": order.status.value},
+            )
+        except Exception:
+            pass
+
     # Update delivery person location if provided
     if status_update.latitude and status_update.longitude:
         delivery_person.current_latitude = status_update.latitude
         delivery_person.current_longitude = status_update.longitude
         delivery_person.last_location_update = datetime.utcnow()
         db.commit()
-    
+
     return ResponseModel(
         success=True,
         data={

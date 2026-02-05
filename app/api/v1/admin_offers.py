@@ -23,11 +23,11 @@ router = APIRouter()
 @router.get("", response_model=ResponseModel)
 async def list_offers(
     type: Optional[str] = Query(None, pattern="^(banner|text|company)$"),
-    status_filter: Optional[str] = Query(None, pattern="^(active|inactive)$"),
+    status: Optional[str] = Query(None, pattern="^(active|inactive)$"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
-    """List all offers with filters"""
+    """List all offers with filters (type, status). Hub sends ?type= & ?status= """
     query = db.query(Offer)
     
     # Apply filters
@@ -38,9 +38,9 @@ async def list_offers(
         except ValueError:
             pass
     
-    if status_filter == "active":
+    if status == "active":
         query = query.filter(Offer.is_active == True)
-    elif status_filter == "inactive":
+    elif status == "inactive":
         query = query.filter(Offer.is_active == False)
     
     # Order by created_at desc
@@ -52,10 +52,16 @@ async def list_offers(
             "id": offer.id,
             "title": offer.title,
             "type": offer.type.value,
+            "offer_type": offer.type.value,
             "description": offer.description,
-            "imageUrl": offer.image,  # Use image field (image_url column doesn't exist in DB)
+            "image": offer.image,
+            "imageUrl": offer.image,
+            "image_url": offer.image,
             "validFrom": offer.valid_from,
+            "valid_from": offer.valid_from.isoformat() if offer.valid_from else None,
             "validTo": offer.valid_to,
+            "valid_to": offer.valid_to.isoformat() if offer.valid_to else None,
+            "status": "active" if offer.is_active else "inactive",
             "isActive": offer.is_active,
             "createdAt": offer.created_at,
             "updatedAt": offer.updated_at
@@ -158,6 +164,36 @@ async def create_offer(
         success=True,
         data=AdminOfferResponse.model_validate(offer),
         message="Offer created successfully"
+    )
+
+
+@router.put("/{offer_id}/toggle", response_model=ResponseModel)
+async def toggle_offer(
+    offer_id: UUID,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Toggle offer active/inactive status."""
+    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    offer.is_active = not offer.is_active
+    db.commit()
+    db.refresh(offer)
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="offer_toggled",
+        entity_type="offer",
+        entity_id=offer_id,
+        details={"is_active": offer.is_active},
+        request=request
+    )
+    return ResponseModel(
+        success=True,
+        data={"id": offer.id, "isActive": offer.is_active, "status": "active" if offer.is_active else "inactive"},
+        message="Offer status updated"
     )
 
 

@@ -1,23 +1,20 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Any
 from datetime import datetime
 from uuid import UUID
 
 
 class NotificationResponse(BaseModel):
+    """Single notification for API response. Uses 'read' for app compatibility."""
     id: UUID
-    user_id: UUID
+    type: str
     title: str
     message: str
-    type: str
-    is_read: bool
+    read: bool = Field(alias="is_read", serialization_alias="read")
     created_at: datetime
-    
+    data: Optional[dict[str, Any]] = None
+
     class Config:
         from_attributes = True
-
-
-class NotificationListResponse(BaseModel):
-    notifications: list[NotificationResponse]
-    unread_count: int
+        populate_by_name = True
 

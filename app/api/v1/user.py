@@ -10,7 +10,10 @@ from app.schemas.payment_method import PaymentMethodCreate, PaymentMethodRespons
 from app.models.user import User
 from app.models.user_activity_log import UserActivityLog
 from app.models.user_payment_method import UserPaymentMethod
+from app.models.wallet import Wallet, WalletTransaction
+from app.schemas.wallet import AddMoneyRequest
 from app.utils.security import verify_password, get_password_hash
+from decimal import Decimal
 
 router = APIRouter()
 
@@ -510,6 +513,105 @@ def set_default_payment_method(
         data={"id": str(pm.id), "is_default": True},
         message="Default updated",
     )
+
+
+# ---------- Wallet ----------
+
+
+def _get_or_create_wallet(db: Session, user_id: str) -> Wallet:
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if not wallet:
+        wallet = Wallet(user_id=user_id, balance=Decimal("0"), currency="INR")
+        db.add(wallet)
+        db.commit()
+        db.refresh(wallet)
+    return wallet
+
+
+def _transaction_to_dict(t: WalletTransaction) -> dict:
+    created = t.created_at
+    date_str = created.strftime("%Y-%m-%d") if created else None
+    iso = created.isoformat() if created else None
+    return {
+        "id": str(t.id),
+        "transaction_id": str(t.id),
+        "type": t.type,
+        "transaction_type": t.type,
+        "amount": float(t.amount),
+        "debit_credit": "credit" if t.type == "credit" else "debit",
+        "description": t.description or "",
+        "remark": t.remark or t.description or "",
+        "narration": t.narration or t.remark or t.description or "",
+        "created_at": iso,
+        "date": date_str,
+        "transaction_date": date_str,
+        "order_id": t.order_id,
+    }
+
+
+@router.get("/wallet", response_model=ResponseModel)
+def get_wallet(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get wallet balance and optional recent transactions."""
+    wallet = _get_or_create_wallet(db, str(current_user.id))
+    recent = (
+        db.query(WalletTransaction)
+        .filter(WalletTransaction.wallet_id == wallet.id)
+        .order_by(WalletTransaction.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    recent_list = [_transaction_to_dict(t) for t in recent]
+    balance_val = float(wallet.balance)
+    data = {
+        "balance": balance_val,
+        "wallet_balance": balance_val,
+        "currency": wallet.currency or "INR",
+        "recent_transactions": recent_list,
+        "transactions": recent_list,
+    }
+    return ResponseModel(success=True, data=data, message="Wallet fetched successfully")
+
+
+@router.get("/wallet/transactions", response_model=ResponseModel)
+def get_wallet_transactions(
+    page: int = 1,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get paginated wallet transaction history."""
+    wallet = _get_or_create_wallet(db, str(current_user.id))
+    q = db.query(WalletTransaction).filter(WalletTransaction.wallet_id == wallet.id)
+    total = q.count()
+    q = q.order_by(WalletTransaction.created_at.desc())
+    offset = (page - 1) * limit
+    items = q.offset(offset).limit(limit).all()
+    transactions = [_transaction_to_dict(t) for t in items]
+    data = {
+        "transactions": transactions,
+        "items": transactions,
+        "pagination": {"page": page, "limit": limit, "total": total},
+    }
+    return ResponseModel(success=True, data=data, message="Transactions fetched successfully")
+
+
+@router.post("/wallet/add-money", response_model=ResponseModel)
+def add_money(
+    body: AddMoneyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Initiate add money. Returns order_id; payment_url when gateway is integrated. Balance is credited on payment success (webhook)."""
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    wallet = _get_or_create_wallet(db, str(current_user.id))
+    order_id = f"wallet_add_{wallet.id}_{int(datetime.utcnow().timestamp())}"
+    data = {"order_id": order_id, "transaction_id": None}
+    message = "Request submitted"
+    return ResponseModel(success=True, data=data, message=message)
 
 
 @router.post("/activity", response_model=ResponseModel)

@@ -13,7 +13,7 @@ import csv
 from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.models.order import Order, OrderItem, OrderStatus
-from app.models.user import User
+from app.models.user import User, KYCStatus
 from app.models.product import Product
 from app.models.category import Category
 from app.models.company import Company
@@ -35,8 +35,8 @@ router = APIRouter()
 @router.get("/dashboard", response_model=ResponseModel)
 async def get_dashboard_metrics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -112,6 +112,11 @@ async def get_dashboard_metrics(
         
         users_change = calculate_percentage_change(float(active_users), float(prev_active_users))
         
+        # Total products (for hub: totalProducts / products)
+        total_products = db.query(func.count(Product.id)).scalar() or 0
+        # KYC pending count (for hub: kycPending / pendingKyc)
+        kyc_pending = db.query(func.count(User.id)).filter(User.kyc_status == KYCStatus.PENDING).scalar() or 0
+        
         # Average Order Value
         avg_order_value = float(total_revenue / total_orders) if total_orders > 0 else 0.0
         prev_avg_order_value = float(prev_revenue / prev_orders) if prev_orders > 0 else 0.0
@@ -121,6 +126,10 @@ async def get_dashboard_metrics(
             "totalRevenue": round(float(total_revenue), 2),
             "totalOrders": total_orders,
             "activeUsers": active_users,
+            "totalProducts": total_products,
+            "products": total_products,
+            "kycPending": kyc_pending,
+            "pendingKyc": kyc_pending,
             "avgOrderValue": round(avg_order_value, 2),
             "revenueChange": revenue_change,
             "ordersChange": orders_change,
@@ -140,8 +149,8 @@ async def get_dashboard_metrics(
 @router.get("/revenue", response_model=ResponseModel)
 async def get_revenue_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -178,6 +187,7 @@ async def get_revenue_analytics(
                 
                 result.append({
                     "period": format_period_label('week', day_start),
+                    "name": format_period_label('week', day_start),
                     "revenue": round(float(revenue), 2),
                     "orders": orders
                 })
@@ -209,6 +219,7 @@ async def get_revenue_analytics(
                 
                 result.append({
                     "period": format_period_label('month', week_start, i),
+                    "name": format_period_label('month', week_start, i),
                     "revenue": round(float(revenue), 2),
                     "orders": orders
                 })
@@ -245,6 +256,7 @@ async def get_revenue_analytics(
                 
                 result.append({
                     "period": format_period_label('quarter', month_start),
+                    "name": format_period_label('quarter', month_start),
                     "revenue": round(float(revenue), 2),
                     "orders": orders
                 })
@@ -318,6 +330,7 @@ async def get_revenue_analytics(
                 
                 result.append({
                     "period": format_period_label('all', current_month),
+                    "name": format_period_label('all', current_month),
                     "revenue": round(float(revenue), 2),
                     "orders": orders
                 })
@@ -340,8 +353,8 @@ async def get_revenue_analytics(
 @router.get("/products", response_model=ResponseModel)
 async def get_product_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     limit: Optional[int] = Query(10, ge=1, le=100),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
@@ -376,6 +389,7 @@ async def get_product_analytics(
             "name": row.name,
             "sales": int(row.sales or 0),
             "revenue": round(float(row.revenue or 0), 2),
+            "amount": round(float(row.revenue or 0), 2),
             "productId": str(row.id)
         } for row in product_analytics]
         
@@ -391,8 +405,8 @@ async def get_product_analytics(
 @router.get("/categories", response_model=ResponseModel)
 async def get_category_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -443,8 +457,8 @@ async def get_category_analytics(
 @router.get("/companies", response_model=ResponseModel)
 async def get_company_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -495,8 +509,8 @@ async def get_company_analytics(
 @router.get("/users", response_model=ResponseModel)
 async def get_user_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -642,8 +656,8 @@ async def get_user_analytics(
 @router.get("/orders", response_model=ResponseModel)
 async def get_order_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -703,8 +717,8 @@ async def get_order_analytics(
 @router.get("/export", response_model=None)
 async def export_analytics_report(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
-    dateFrom: Optional[date] = None,
-    dateTo: Optional[date] = None,
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
     format: Optional[str] = Query('csv', pattern='^(xlsx|csv)$'),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)

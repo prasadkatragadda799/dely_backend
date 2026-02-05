@@ -20,6 +20,7 @@ from app.models.order_status_history import OrderStatusHistory
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.pagination import paginate
+from app.utils.notification_helper import create_notification
 from app.models.admin import Admin
 
 router = APIRouter()
@@ -156,6 +157,9 @@ async def list_orders(
                 "subtotal": float(item.subtotal)
             })
         
+        # Safe total (total_amount may be NULL in some DBs)
+        order_total = float(o.total_amount) if o.total_amount is not None else float(o.total)
+
         # Get payment info
         payment = None
         if o.payment_method or o.payment_status:
@@ -189,15 +193,15 @@ async def list_orders(
             "items": items,
             "itemsCount": len(o.order_items),
             "items_count": len(o.order_items),
-            "totalAmount": float(o.total_amount),
-            "total_amount": float(o.total_amount),
-            "total": float(o.total_amount),
-            "amount": float(o.total_amount),
-            "subtotal": float(o.subtotal),
-            "tax": float(o.tax),
-            "deliveryCharge": float(o.delivery_charge),
-            "delivery_charge": float(o.delivery_charge),
-            "discount": float(o.discount),
+            "totalAmount": order_total,
+            "total_amount": order_total,
+            "total": order_total,
+            "amount": order_total,
+            "subtotal": float(o.subtotal or 0),
+            "tax": float(o.tax or 0),
+            "deliveryCharge": float(o.delivery_charge or 0),
+            "delivery_charge": float(o.delivery_charge or 0),
+            "discount": float(o.discount or 0),
             "paymentMethod": o.payment_method,
             "payment_method": o.payment_method,
             "payment": payment,
@@ -478,7 +482,24 @@ async def update_order_status(
     
     # Refresh order to get updated status history
     db.refresh(order)
-    
+
+    # Notify user about order status change
+    if order.user_id:
+        _order_notif_type = "delivery" if order_status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED) else "order"
+        _title = f"Order #{order.order_number} {order_status.value.replace('_', ' ')}"
+        _msg = f"Your order has been updated to: {order_status.value.replace('_', ' ')}."
+        try:
+            create_notification(
+                db=db,
+                user_id=order.user_id,
+                type=_order_notif_type,
+                title=_title,
+                message=_msg,
+                data={"order_id": str(order.id), "order_number": order.order_number, "status": order_status.value},
+            )
+        except Exception:
+            pass
+
     return ResponseModel(
         success=True,
         data={
@@ -546,7 +567,20 @@ async def cancel_order(
         details={"reason": cancel_data.reason},
         request=request
     )
-    
+
+    if order.user_id:
+        try:
+            create_notification(
+                db=db,
+                user_id=order.user_id,
+                type="order",
+                title=f"Order #{order.order_number} cancelled",
+                message="Your order has been cancelled.",
+                data={"order_id": str(order.id), "order_number": order.order_number, "status": "cancelled"},
+            )
+        except Exception:
+            pass
+
     return ResponseModel(
         success=True,
         message="Order cancelled successfully"
