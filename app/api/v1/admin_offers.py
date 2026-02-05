@@ -94,12 +94,12 @@ async def list_offers(
 
 @router.get("/{offer_id}", response_model=ResponseModel)
 async def get_offer(
-    offer_id: UUID,
+    offer_id: str,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Get offer details"""
-    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    offer = db.query(Offer).filter(Offer.id == str(offer_id)).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     
@@ -185,13 +185,13 @@ async def create_offer(
 
 @router.put("/{offer_id}/toggle", response_model=ResponseModel)
 async def toggle_offer(
-    offer_id: UUID,
+    offer_id: str,
     request: Request,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Toggle offer active/inactive status."""
-    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    offer = db.query(Offer).filter(Offer.id == str(offer_id)).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     offer.is_active = not offer.is_active
@@ -215,7 +215,7 @@ async def toggle_offer(
 
 @router.put("/{offer_id}", response_model=ResponseModel)
 async def update_offer(
-    offer_id: UUID,
+    offer_id: str,
     request: Request,
     # Admin Hub sends FormData (multipart/form-data). All fields optional for partial update.
     title: Optional[str] = Form(None),
@@ -228,7 +228,7 @@ async def update_offer(
     db: Session = Depends(get_db)
 ):
     """Update an offer"""
-    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    offer = db.query(Offer).filter(Offer.id == str(offer_id)).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
 
@@ -286,13 +286,13 @@ async def update_offer(
 
 @router.delete("/{offer_id}", response_model=ResponseModel)
 async def delete_offer(
-    offer_id: UUID,
+    offer_id: str,
     request: Request,
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Delete an offer"""
-    offer = db.query(Offer).filter(Offer.id == offer_id).first()
+    offer = db.query(Offer).filter(Offer.id == str(offer_id)).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
     
