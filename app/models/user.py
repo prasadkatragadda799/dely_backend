@@ -85,5 +85,6 @@ class User(Base):
     kyc_records = relationship("KYC", back_populates="user", cascade="all, delete-orphan")
     kyc_documents = relationship("KYCDocument", back_populates="user", cascade="all, delete-orphan")
     delivery_locations = relationship("DeliveryLocation", back_populates="user", cascade="all, delete-orphan")
+    payment_methods = relationship("UserPaymentMethod", back_populates="user", cascade="all, delete-orphan")
     activity_logs = relationship("UserActivityLog", back_populates="user", cascade="all, delete-orphan")
 

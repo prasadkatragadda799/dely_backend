@@ -206,9 +206,10 @@ class UserLogin(BaseModel):
 
 
 class ChangePassword(BaseModel):
-    current_password: str
-    new_password: str = Field(..., min_length=6)
-    confirm_password: str
+    """Change password. Accepts camelCase (currentPassword, newPassword, confirmPassword) from app."""
+    current_password: str = Field(..., validation_alias=AliasChoices("currentPassword", "current_password"))
+    new_password: str = Field(..., min_length=6, validation_alias=AliasChoices("newPassword", "new_password"))
+    confirm_password: str = Field(..., validation_alias=AliasChoices("confirmPassword", "confirm_password"))
 
 
 class TokenResponse(BaseModel):

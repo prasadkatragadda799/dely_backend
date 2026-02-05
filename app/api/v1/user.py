@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime
 from app.database import get_db
@@ -6,8 +6,10 @@ from app.api.deps import get_current_user
 from app.schemas.user import UserResponse, UserUpdate, ChangePassword
 from app.schemas.common import ResponseModel
 from app.schemas.admin_report import UserActivityCreate
+from app.schemas.payment_method import PaymentMethodCreate, PaymentMethodResponse, PaymentMethodSetDefaultResponse
 from app.models.user import User
 from app.models.user_activity_log import UserActivityLog
+from app.models.user_payment_method import UserPaymentMethod
 from app.utils.security import verify_password, get_password_hash
 
 router = APIRouter()
@@ -370,6 +372,144 @@ def change_password(
     db.commit()
     
     return ResponseModel(success=True, message="Password changed successfully")
+
+
+# ---------- Payment methods (Profile → Payment Methods) ----------
+
+
+def _payment_method_to_response(pm: UserPaymentMethod) -> dict:
+    """Build API response dict for a single payment method."""
+    out = {
+        "id": str(pm.id),
+        "type": pm.type,
+        "is_default": pm.is_default,
+    }
+    if pm.type == "card":
+        out["last4"] = pm.last4
+        out["brand"] = pm.brand
+        out["expiry_month"] = pm.expiry_month
+        out["expiry_year"] = pm.expiry_year
+    else:
+        out["upi_id"] = pm.upi_id
+    return out
+
+
+@router.get("/payment-methods", response_model=ResponseModel)
+def list_payment_methods(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List current user's saved payment methods."""
+    methods = (
+        db.query(UserPaymentMethod)
+        .filter(UserPaymentMethod.user_id == str(current_user.id))
+        .order_by(UserPaymentMethod.is_default.desc(), UserPaymentMethod.created_at.desc())
+        .all()
+    )
+    data = [_payment_method_to_response(m) for m in methods]
+    return ResponseModel(success=True, data=data, message="Payment methods fetched successfully")
+
+
+@router.post("/payment-methods", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
+def add_payment_method(
+    body: PaymentMethodCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Add a saved payment method (card or UPI). If is_default=True, others are unset."""
+    if body.is_default:
+        db.query(UserPaymentMethod).filter(
+            UserPaymentMethod.user_id == str(current_user.id)
+        ).update({"is_default": False})
+
+    def _s(s):
+        return (s or "").strip() or None
+
+    pm = UserPaymentMethod(
+        user_id=str(current_user.id),
+        type=body.type,
+        last4=_s(body.last4),
+        brand=_s(body.brand),
+        expiry_month=_s(body.expiry_month),
+        expiry_year=_s(body.expiry_year),
+        upi_id=_s(body.upi_id),
+        is_default=body.is_default,
+    )
+    db.add(pm)
+    db.commit()
+    db.refresh(pm)
+    return ResponseModel(
+        success=True,
+        data=_payment_method_to_response(pm),
+        message="Payment method added",
+    )
+
+
+@router.delete("/payment-methods/{payment_method_id}", response_model=ResponseModel)
+def remove_payment_method(
+    payment_method_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove a saved payment method. If it was default, another may be set by client or left unset."""
+    pm = (
+        db.query(UserPaymentMethod)
+        .filter(
+            UserPaymentMethod.id == payment_method_id,
+            UserPaymentMethod.user_id == str(current_user.id),
+        )
+        .first()
+    )
+    if not pm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment method not found",
+        )
+    was_default = pm.is_default
+    db.delete(pm)
+    if was_default:
+        other = (
+            db.query(UserPaymentMethod)
+            .filter(UserPaymentMethod.user_id == str(current_user.id))
+            .first()
+        )
+        if other:
+            other.is_default = True
+    db.commit()
+    return ResponseModel(success=True, message="Payment method removed")
+
+
+@router.patch("/payment-methods/{payment_method_id}/default", response_model=ResponseModel)
+def set_default_payment_method(
+    payment_method_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set this payment method as default; clear default on all others for this user."""
+    pm = (
+        db.query(UserPaymentMethod)
+        .filter(
+            UserPaymentMethod.id == payment_method_id,
+            UserPaymentMethod.user_id == str(current_user.id),
+        )
+        .first()
+    )
+    if not pm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment method not found",
+        )
+    db.query(UserPaymentMethod).filter(
+        UserPaymentMethod.user_id == str(current_user.id)
+    ).update({"is_default": False})
+    pm.is_default = True
+    db.commit()
+    db.refresh(pm)
+    return ResponseModel(
+        success=True,
+        data={"id": str(pm.id), "is_default": True},
+        message="Default updated",
+    )
 
 
 @router.post("/activity", response_model=ResponseModel)
