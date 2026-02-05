@@ -1,7 +1,7 @@
 """
 Admin Offers Management Endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID
@@ -14,10 +14,19 @@ from app.schemas.common import ResponseModel
 from app.models.offer import Offer, OfferType
 from app.models.company import Company
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin
+from app.api.v1.admin_upload import save_uploaded_file
 from app.utils.admin_activity import log_admin_activity
 from app.models.admin import Admin
 
 router = APIRouter()
+
+def _parse_date(value: Optional[str], field_name: str) -> Optional[date]:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name}. Expected YYYY-MM-DD")
 
 
 @router.get("", response_model=ResponseModel)
@@ -111,38 +120,45 @@ async def get_offer(
 
 @router.post("", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 async def create_offer(
-    offer_data: AdminOfferCreate,
     request: Request,
+    # Admin Hub sends FormData (multipart/form-data)
+    title: str = Form(...),
+    type: str = Form(...),
+    description: Optional[str] = Form(None),
+    validFrom: str = Form(...),
+    validTo: str = Form(...),
+    image: Optional[UploadFile] = File(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new offer"""
-    # Validate date range
-    if offer_data.valid_from > offer_data.valid_to:
-        raise HTTPException(
-            status_code=400,
-            detail="valid_from cannot be after valid_to"
-        )
-    
-    # Validate company_id if provided
-    if offer_data.company_id:
-        company = db.query(Company).filter(Company.id == offer_data.company_id).first()
-        if not company:
-            raise HTTPException(
-                status_code=400,
-                detail="Company not found"
-            )
+    try:
+        offer_type = OfferType(type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid type. Use banner|text|company")
+
+    valid_from = _parse_date(validFrom, "validFrom")
+    valid_to = _parse_date(validTo, "validTo")
+    if not valid_from or not valid_to:
+        raise HTTPException(status_code=400, detail="validFrom and validTo are required")
+    if valid_from > valid_to:
+        raise HTTPException(status_code=400, detail="validFrom cannot be after validTo")
+
+    image_url = None
+    if image is not None:
+        # Store offer image under /uploads/offer/...
+        image_url = save_uploaded_file(image, "offer", None, request)
     
     offer = Offer(
-        title=offer_data.title,
-        type=offer_data.type,
-        description=offer_data.description,
-        image=offer_data.image_url,  # Map image_url from schema to image field in model
+        title=title,
+        type=offer_type,
+        description=description,
+        image=image_url,
         # Note: company_id column doesn't exist in database table yet
         # company_id=offer_data.company_id,
-        valid_from=offer_data.valid_from,
-        valid_to=offer_data.valid_to,
-        is_active=offer_data.is_active
+        valid_from=valid_from,
+        valid_to=valid_to,
+        is_active=True
     )
     
     db.add(offer)
@@ -200,8 +216,14 @@ async def toggle_offer(
 @router.put("/{offer_id}", response_model=ResponseModel)
 async def update_offer(
     offer_id: UUID,
-    offer_data: AdminOfferUpdate,
     request: Request,
+    # Admin Hub sends FormData (multipart/form-data). All fields optional for partial update.
+    title: Optional[str] = Form(None),
+    type: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    validFrom: Optional[str] = Form(None),
+    validTo: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -209,37 +231,37 @@ async def update_offer(
     offer = db.query(Offer).filter(Offer.id == offer_id).first()
     if not offer:
         raise HTTPException(status_code=404, detail="Offer not found")
-    
-    # Validate date range if dates are being updated
-    valid_from = offer_data.valid_from if offer_data.valid_from else offer.valid_from
-    valid_to = offer_data.valid_to if offer_data.valid_to else offer.valid_to
-    
-    if valid_from > valid_to:
-        raise HTTPException(
-            status_code=400,
-            detail="valid_from cannot be after valid_to"
-        )
-    
-    # Validate company_id if provided
-    if offer_data.company_id:
-        company = db.query(Company).filter(Company.id == offer_data.company_id).first()
-        if not company:
-            raise HTTPException(
-                status_code=400,
-                detail="Company not found"
-            )
-    
-    # Update fields
-    update_data = offer_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if key == "image_url":
-            # Map image_url from schema to image field in model
-            setattr(offer, "image", value)
-        elif key == "company_id":
-            # Skip company_id - column doesn't exist in database table yet
-            pass
-        elif hasattr(offer, key):
-            setattr(offer, key, value)
+
+    update_details: dict = {}
+
+    if type is not None:
+        try:
+            offer.type = OfferType(type)
+            update_details["type"] = type
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid type. Use banner|text|company")
+    if title is not None:
+        offer.title = title
+        update_details["title"] = title
+    if description is not None:
+        offer.description = description
+        update_details["description"] = description
+
+    # Dates (partial update)
+    new_valid_from = _parse_date(validFrom, "validFrom") if validFrom is not None else offer.valid_from
+    new_valid_to = _parse_date(validTo, "validTo") if validTo is not None else offer.valid_to
+    if new_valid_from and new_valid_to and new_valid_from > new_valid_to:
+        raise HTTPException(status_code=400, detail="validFrom cannot be after validTo")
+    offer.valid_from = new_valid_from
+    offer.valid_to = new_valid_to
+    if validFrom is not None:
+        update_details["validFrom"] = validFrom
+    if validTo is not None:
+        update_details["validTo"] = validTo
+
+    if image is not None:
+        offer.image = save_uploaded_file(image, "offer", None, request)
+        update_details["image"] = True
     
     db.commit()
     db.refresh(offer)
@@ -251,7 +273,7 @@ async def update_offer(
         action="offer_updated",
         entity_type="offer",
         entity_id=offer_id,
-        details=update_data,
+        details=update_details,
         request=request
     )
     
