@@ -6,11 +6,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.config import settings
-from app.api.v1 import (
-    auth, products, companies, categories, cart, orders,
-    user, wishlist, offers, notifications, kyc, delivery, payments, stats
-)
-from app.api.v1 import admin_auth, admin_products, admin_orders, admin_users, admin_kyc, admin_companies, admin_categories, admin_offers, admin_analytics, admin_upload, admin_reports, admin_sellers, seller_products, seller_resources, admin_settings, admin_management, admin_invoices, delivery_auth, delivery_orders, delivery_dashboard, admin_delivery
+from app.core.exceptions import AppException
+from app.api.route_registry import register_routes
 from app.middleware.security import SecurityHeadersMiddleware, TimingMiddleware
 import logging
 
@@ -178,12 +175,23 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    """Handle application exceptions with consistent JSON."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": exc.message,
+            "error": {"code": exc.code, "details": exc.details},
+        },
+    )
+
+
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions"""
-    # Log the error
+    """Handle unhandled exceptions."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -197,61 +205,8 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Include Routers
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
-app.include_router(products.router, prefix="/api/v1/products", tags=["Products"])
-app.include_router(companies.router, prefix="/api/v1/companies", tags=["Companies"])
-app.include_router(categories.router, prefix="/api/v1/categories", tags=["Categories"])
-app.include_router(cart.router, prefix="/api/v1/cart", tags=["Cart"])
-app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
-app.include_router(user.router, prefix="/api/v1/user", tags=["User"])
-app.include_router(wishlist.router, prefix="/api/v1/wishlist", tags=["Wishlist"])
-app.include_router(offers.router, prefix="/api/v1/offers", tags=["Offers"])
-app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
-app.include_router(kyc.router, prefix="/api/v1/kyc", tags=["KYC"])
-app.include_router(delivery.router, prefix="/api/v1/delivery", tags=["Delivery"])
-app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments"])
-app.include_router(stats.router, prefix="/api/v1/stats", tags=["Statistics"])
-
-# Admin Routers
-app.include_router(admin_auth.router, prefix="/admin/auth", tags=["Admin Authentication"])
-app.include_router(admin_products.router, prefix="/admin/products", tags=["Admin Products"])
-app.include_router(admin_orders.router, prefix="/admin/orders", tags=["Admin Orders"])
-app.include_router(admin_users.router, prefix="/admin/users", tags=["Admin Users"])
-app.include_router(admin_kyc.router, prefix="/admin/kyc", tags=["Admin KYC"])
-app.include_router(admin_companies.router, prefix="/admin", tags=["Admin Companies & Brands"])
-# Also support /api/admin prefix for frontend compatibility
-app.include_router(admin_companies.router, prefix="/api/admin", tags=["Admin Companies & Brands"])
-app.include_router(admin_categories.router, prefix="/admin/categories", tags=["Admin Categories"])
-app.include_router(admin_offers.router, prefix="/admin/offers", tags=["Admin Offers"])
-app.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["Admin Analytics"])
-app.include_router(admin_upload.router, prefix="/admin/upload", tags=["Admin Upload"])
-app.include_router(admin_reports.router, prefix="/admin/reports", tags=["Admin Reports"])
-app.include_router(admin_sellers.router, prefix="/admin/sellers", tags=["Admin Sellers"])
-app.include_router(seller_products.router, prefix="/seller/products", tags=["Seller Products"])
-app.include_router(seller_resources.router, prefix="/seller", tags=["Seller Resources"])
-app.include_router(admin_settings.router, prefix="/admin/settings", tags=["Admin Settings"])
-app.include_router(admin_management.router, prefix="/admin/admins", tags=["Admin Management"])
-app.include_router(admin_invoices.router, prefix="/admin/orders", tags=["Admin Invoices"])
-app.include_router(admin_delivery.router, prefix="/admin/delivery", tags=["Admin Delivery"])
-app.include_router(delivery_auth.router, prefix="/delivery/auth", tags=["Delivery Authentication"])
-app.include_router(
-    delivery_auth.router,
-    prefix="/api/v1/delivery/auth",
-    tags=["Delivery Authentication"],
-)
-app.include_router(delivery_dashboard.router, prefix="/delivery", tags=["Delivery Dashboard"])
-app.include_router(
-    delivery_dashboard.router,
-    prefix="/api/v1/delivery",
-    tags=["Delivery Dashboard"],
-)
-app.include_router(delivery_orders.router, prefix="/delivery/orders", tags=["Delivery Orders"])
-app.include_router(
-    delivery_orders.router,
-    prefix="/api/v1/delivery/orders",
-    tags=["Delivery Orders"],
-)
+# Register all API, Admin, and Delivery routes (see app.api.route_registry)
+register_routes(app)
 
 # Serve uploaded files statically
 uploads_dir = Path(settings.UPLOAD_DIR)

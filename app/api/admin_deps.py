@@ -218,3 +218,9 @@ def require_seller():
         return current_admin
     return seller_checker
 
+
+def get_product_service(db: Session = Depends(get_db)):
+    """Inject ProductService for admin product endpoints."""
+    from app.services.product_service import ProductService
+    return ProductService(db)
+

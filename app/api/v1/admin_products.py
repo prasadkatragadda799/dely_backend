@@ -20,7 +20,8 @@ from app.models.category import Category
 from app.models.product_image import ProductImage
 from app.models.product_variant import ProductVariant
 from app.models.admin import Admin
-from app.api.admin_deps import require_manager_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, get_current_active_admin, get_product_service
+from app.services.product_service import ProductService
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
 from app.utils.pagination import paginate
@@ -28,7 +29,7 @@ from app.api.v1.admin_upload import save_uploaded_file
 from app.config import settings
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import json
 
 logger = logging.getLogger(__name__)
@@ -46,62 +47,26 @@ async def list_products(
     brand: Optional[UUID] = None,
     status: Optional[str] = Query(None, pattern="^(available|unavailable|all)$"),
     stock_status: Optional[str] = Query(None, pattern="^(in_stock|low_stock|out_of_stock)$"),
+    expiry_within_months: Optional[int] = Query(None, ge=1, le=24),
     sort: Optional[str] = Query("created_at", pattern="^(name|price|stock|created_at)$"),
     order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
     admin: Admin = Depends(require_manager_or_above),
-    db: Session = Depends(get_db)
+    product_service: ProductService = Depends(get_product_service),
 ):
     """List all products with filters and pagination"""
-    query = db.query(Product)
-    
-    # Apply filters
-    if search:
-        query = query.filter(
-            or_(
-                Product.name.ilike(f"%{search}%"),
-                Product.slug.ilike(f"%{search}%"),
-                Product.description.ilike(f"%{search}%")
-            )
-        )
-    
-    # ID filters - convert UUIDs to strings for String(36) columns
-    if category:
-        query = query.filter(Product.category_id == str(category))
-    if company:
-        query = query.filter(Product.company_id == str(company))
-    if brand:
-        query = query.filter(Product.brand_id == str(brand))
-    
-    if status == "available":
-        query = query.filter(Product.is_available == True)
-    elif status == "unavailable":
-        query = query.filter(Product.is_available == False)
-    
-    if stock_status == "in_stock":
-        query = query.filter(Product.stock_quantity > 10)
-    elif stock_status == "low_stock":
-        query = query.filter(and_(Product.stock_quantity > 0, Product.stock_quantity <= 10))
-    elif stock_status == "out_of_stock":
-        query = query.filter(Product.stock_quantity == 0)
-    
-    # Apply sorting
-    if sort == "name":
-        order_by = Product.name.asc() if order == "asc" else Product.name.desc()
-    elif sort == "price":
-        order_by = Product.selling_price.asc() if order == "asc" else Product.selling_price.desc()
-    elif sort == "stock":
-        order_by = Product.stock_quantity.asc() if order == "asc" else Product.stock_quantity.desc()
-    else:
-        order_by = Product.created_at.desc() if order == "desc" else Product.created_at.asc()
-    
-    query = query.order_by(order_by)
-    
-    # Get total count
-    total = query.count()
-    
-    # Apply pagination
-    offset = (page - 1) * limit
-    products = query.offset(offset).limit(limit).all()
+    products, total = product_service.list_products_for_admin(
+        page=page,
+        limit=limit,
+        search=search,
+        category=category,
+        company=company,
+        brand=brand,
+        status=status,
+        stock_status=stock_status,
+        expiry_within_months=expiry_within_months,
+        sort=sort or "created_at",
+        order=order or "desc",
+    )
     
     # Format response
     product_list = []
@@ -120,6 +85,7 @@ async def list_products(
             "specifications": p.specifications,
             "isFeatured": p.is_featured,
             "isAvailable": p.is_available,
+            "expiryDate": p.expiry_date.isoformat() if p.expiry_date else None,
             "images": [ProductImageResponse.model_validate(img) for img in p.product_images],
             "variants": [
                 {
@@ -166,25 +132,11 @@ async def list_products(
 async def get_product(
     product_id: UUID,
     admin: Admin = Depends(require_manager_or_above),
-    db: Session = Depends(get_db)
+    product_service: ProductService = Depends(get_product_service),
 ):
-    """Get product details"""
-    # Convert UUID to string for database query (Product.id is String(36))
+    """Get product details. Raises NotFoundError (404) if not found."""
     product_id_str = str(product_id).strip()
-    product_id_no_dashes = product_id_str.replace('-', '')
-
-    product = db.query(Product)\
-        .options(
-            joinedload(Product.brand_rel),
-            joinedload(Product.company),
-            joinedload(Product.category),
-            joinedload(Product.product_images)
-        )\
-        .filter(Product.id.in_([product_id_str, product_id_no_dashes]))\
-        .first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
+    product = product_service.get_product_for_admin(product_id_str)
     product_data = AdminProductResponse.model_validate(product)
     return ResponseModel(
         success=True,
@@ -226,6 +178,8 @@ async def create_product(
     meta_description: Optional[str] = Form(None),  # snake_case
     metaDescription: Optional[str] = Form(None),  # camelCase
     slug: Optional[str] = Form(None),
+    expiryDate: Optional[str] = Form(None),  # YYYY-MM-DD
+    expiry_date: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),  # JSON string array of variants
     # Image files (can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
@@ -257,6 +211,18 @@ async def create_product(
     meta_title = meta_title if meta_title is not None else metaTitle
     meta_description = meta_description if meta_description is not None else metaDescription
     primaryIndex = primaryIndex if primaryIndex is not None else primary_index
+    expiry_date_str = expiryDate or expiry_date
+
+    # Parse expiry_date (YYYY-MM-DD)
+    expiry_date_parsed: Optional[date] = None
+    if expiry_date_str:
+        try:
+            expiry_date_parsed = date.fromisoformat(expiry_date_str.strip())
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="expiry_date must be in YYYY-MM-DD format"
+            )
 
     # Required fields (accept either casing variants)
     if mrp is None:
@@ -365,6 +331,7 @@ async def create_product(
         specifications=specs_dict,
         is_featured=is_featured_bool,
         is_available=is_available_bool,
+        expiry_date=expiry_date_parsed,
         meta_title=meta_title,
         meta_description=meta_description,
         # created_by column is String(36); ensure we store a string
@@ -505,6 +472,8 @@ async def update_product(
     meta_description: Optional[str] = Form(None),
     metaDescription: Optional[str] = Form(None),
     slug: Optional[str] = Form(None),
+    expiryDate: Optional[str] = Form(None),  # YYYY-MM-DD
+    expiry_date: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
     # Image files (optional, can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
@@ -553,6 +522,23 @@ async def update_product(
     meta_title = meta_title if meta_title is not None else metaTitle
     meta_description = meta_description if meta_description is not None else metaDescription
     primaryIndex = primaryIndex if primaryIndex is not None else primary_index
+    expiry_date_str = expiryDate or expiry_date
+
+    # Parse expiry_date (YYYY-MM-DD); empty string clears the field
+    if expiry_date_str is not None:
+        if expiry_date_str.strip() == "":
+            product.expiry_date = None
+            update_data["expiry_date"] = None
+        else:
+            try:
+                expiry_date_parsed = date.fromisoformat(expiry_date_str.strip())
+                product.expiry_date = expiry_date_parsed
+                update_data["expiry_date"] = expiry_date_parsed
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="expiry_date must be in YYYY-MM-DD format",
+                )
 
     # Parse booleans
     if isFeatured is not None:

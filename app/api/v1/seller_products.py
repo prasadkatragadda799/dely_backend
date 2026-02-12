@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import Optional
 from uuid import UUID
+from datetime import date, timedelta
 from pydantic import BaseModel
 from decimal import Decimal
 from app.database import get_db
@@ -46,6 +47,7 @@ async def list_seller_products(
     search: Optional[str] = None,
     category_id: Optional[str] = None,
     is_available: Optional[bool] = None,
+    expiry_within_months: Optional[int] = Query(None, ge=1, le=24),
     seller: Admin = Depends(require_seller_or_above),
     db: Session = Depends(get_db)
 ):
@@ -81,6 +83,16 @@ async def list_seller_products(
     if is_available is not None:
         query = query.filter(Product.is_available == is_available)
     
+    # Filter by products expiring within N months (inventory management)
+    if expiry_within_months is not None:
+        today = date.today()
+        end_date = today + timedelta(days=expiry_within_months * 30)
+        query = query.filter(
+            Product.expiry_date.isnot(None),
+            Product.expiry_date >= today,
+            Product.expiry_date <= end_date,
+        )
+    
     # Order by created_at descending
     query = query.order_by(Product.created_at.desc())
     
@@ -103,6 +115,7 @@ async def list_seller_products(
             "stock_quantity": p.stock_quantity,
             "is_available": p.is_available,
             "is_featured": p.is_featured,
+            "expiry_date": p.expiry_date.isoformat() if getattr(p, "expiry_date", None) else None,
             "category": {
                 "id": p.category.id,
                 "name": p.category.name

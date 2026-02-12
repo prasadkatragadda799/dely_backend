@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Numeric, Boolean, Text, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, String, Integer, Numeric, Boolean, Text, DateTime, Date, ForeignKey, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 import uuid
@@ -26,6 +26,7 @@ class Product(Base):
     specifications = Column(JSON, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
     is_available = Column(Boolean, default=True, nullable=False)
+    expiry_date = Column(Date, nullable=True)  # Best-before / expiry for inventory management
     meta_title = Column(String(255), nullable=True)
     meta_description = Column(Text, nullable=True)
     created_by = Column(String(36), ForeignKey("admins.id"), nullable=True)
