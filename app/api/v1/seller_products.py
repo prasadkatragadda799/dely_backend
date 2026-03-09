@@ -1,26 +1,28 @@
 """
 Seller Product Management Endpoints
-Sellers can only manage products for their assigned company
+Sellers can manage products across companies (as requested).
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Form, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
-from typing import Optional
+from typing import Optional, List, Union
 from uuid import UUID
 from datetime import date, timedelta
 from pydantic import BaseModel
 from decimal import Decimal
 from app.database import get_db
 from app.schemas.common import ResponseModel
-from app.schemas.admin_product import AdminProductCreate, AdminProductUpdate
+from app.schemas.admin_product import AdminProductUpdate
 from app.models.admin import Admin, AdminRole
 from app.models.product import Product
 from app.models.category import Category
 from app.models.brand import Brand
 from app.models.company import Company
+from app.models.product_image import ProductImage
 from app.api.admin_deps import require_seller_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug
+from app.api.v1.admin_upload import save_uploaded_file
 
 router = APIRouter()
 
@@ -35,7 +37,8 @@ def check_seller_product_access(seller: Admin, product: Product) -> bool:
         return True
     
     if seller.role == AdminRole.SELLER:
-        return product.company_id == seller.company_id
+        # Sellers should only manage products created by them.
+        return str(product.created_by) == str(seller.id)
     
     return False
 
@@ -58,14 +61,9 @@ async def list_seller_products(
     """
     query = db.query(Product)
     
-    # Sellers can only see products from their company
+    # Sellers should only see products created by them.
     if seller.role == AdminRole.SELLER:
-        if not seller.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller not assigned to any company"
-            )
-        query = query.filter(Product.company_id == seller.company_id)
+        query = query.filter(Product.created_by == str(seller.id))
     
     # Apply filters
     if search:
@@ -166,7 +164,7 @@ async def get_seller_product(
     if not check_seller_product_access(seller, product):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. You can only view products from your company."
+            detail="Access denied. You can only view products created by you."
         )
     
     # Format response
@@ -226,65 +224,169 @@ async def get_seller_product(
 
 @router.post("", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 async def create_seller_product(
-    product_data: AdminProductCreate,
     request: Request,
+    # Multipart form fields (match admin product create)
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    categoryId: Optional[str] = Form(None),  # camelCase
+    category_id: Optional[str] = Form(None),  # snake_case
+    divisionId: Optional[str] = Form(None),  # camelCase
+    division_id: Optional[str] = Form(None),  # snake_case
+    brand_id: Optional[str] = Form(None),
+    brandId: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    companyId: Optional[str] = Form(None),
+    mrp: Decimal = Form(...),
+    sellingPrice: Decimal = Form(...),
+    selling_price: Optional[Decimal] = Form(None),  # allow snake_case too
+    stockQuantity: Optional[int] = Form(None),
+    stock_quantity: Optional[int] = Form(None),
+    minOrderQuantity: Optional[int] = Form(None),
+    min_order_quantity: Optional[int] = Form(None),
+    unit: str = Form(...),
+    piecesPerSet: Optional[int] = Form(None),
+    pieces_per_set: Optional[int] = Form(None),
+    specifications: Optional[str] = Form(None),  # JSON string
+    isFeatured: Optional[str] = Form(None),
+    is_featured: Optional[str] = Form(None),
+    isAvailable: Optional[str] = Form(None),
+    is_available: Optional[str] = Form(None),
+    meta_title: Optional[str] = Form(None),
+    metaTitle: Optional[str] = Form(None),
+    meta_description: Optional[str] = Form(None),
+    metaDescription: Optional[str] = Form(None),
+    slug: Optional[str] = Form(None),
+    expiryDate: Optional[str] = Form(None),
+    expiry_date: Optional[str] = Form(None),
+    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
+    primaryIndex: Optional[int] = Form(None),
+    primary_index: Optional[int] = Form(None),
     seller: Admin = Depends(require_seller_or_above),
     db: Session = Depends(get_db)
 ):
     """
     Create a new product.
-    Sellers can only create products for their assigned company.
+    Sellers can create products across companies (as requested).
     """
-    # Sellers must create products for their company only
-    if seller.role == AdminRole.SELLER:
-        if not seller.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller not assigned to any company"
-            )
-        # Override company_id with seller's company
-        product_data.company_id = seller.company_id
-    
+
+    # Normalize images to list
+    if images is None:
+        image_files: List[UploadFile] = []
+    elif isinstance(images, list):
+        image_files = images
+    else:
+        image_files = [images]
+
+    # Normalize field variants
+    categoryId = categoryId or category_id
+    division_id_param = divisionId or division_id
+    brand_id = brand_id or brandId
+    company_id = company_id or companyId
+    sellingPrice = sellingPrice if sellingPrice is not None else (selling_price if selling_price is not None else sellingPrice)
+    stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
+    minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
+    piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    isFeatured = isFeatured if isFeatured is not None else is_featured
+    isAvailable = isAvailable if isAvailable is not None else is_available
+    meta_title = meta_title if meta_title is not None else metaTitle
+    meta_description = meta_description if meta_description is not None else metaDescription
+    primaryIndex = primaryIndex if primaryIndex is not None else primary_index
+    expiry_date_str = expiryDate or expiry_date
+
+    # Validate IDs (DB stores strings but validate UUID format)
+    if not categoryId:
+        raise HTTPException(status_code=400, detail="categoryId/category_id is required")
+    try:
+        UUID(categoryId)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid category ID format")
+    category_id_str = categoryId
+
+    division_id_str: Optional[str] = None
+    if division_id_param:
+        try:
+            UUID(division_id_param)
+            division_id_str = division_id_param
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid division ID format")
+
+    brand_id_str: Optional[str] = None
+    if brand_id:
+        try:
+            UUID(brand_id)
+            brand_id_str = brand_id
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid brand ID format")
+
+    if not company_id:
+        raise HTTPException(status_code=400, detail="companyId/company_id is required for seller product creation")
+    try:
+        UUID(company_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid company ID format")
+    company_id_str = company_id
+
     # Verify category exists
-    category = db.query(Category).filter(Category.id == str(product_data.category_id)).first()
+    category = db.query(Category).filter(Category.id == str(category_id_str)).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
     
     # Generate slug
-    slug = generate_slug(product_data.name)
+    product_slug = slug or generate_slug(name)
     
     # Check if slug exists
-    existing_product = db.query(Product).filter(Product.slug == slug).first()
+    existing_product = db.query(Product).filter(Product.slug == product_slug).first()
     if existing_product:
         # Add random suffix
         import random
-        slug = f"{slug}-{random.randint(1000, 9999)}"
+        product_slug = f"{product_slug}-{random.randint(1000, 9999)}"
     
     # Create product
     new_product = Product(
-        name=product_data.name,
-        slug=slug,
-        description=product_data.description,
-        brand_id=str(product_data.brand_id) if product_data.brand_id else None,
-        company_id=str(product_data.company_id),
-        category_id=str(product_data.category_id),
-        mrp=product_data.mrp,
-        selling_price=product_data.selling_price,
-        stock_quantity=product_data.stock_quantity or 0,
-        min_order_quantity=product_data.min_order_quantity or 1,
-        unit=product_data.unit,
-        pieces_per_set=product_data.pieces_per_set or 1,
-        specifications=product_data.specifications,
-        is_featured=product_data.is_featured or False,
-        is_available=product_data.is_available if product_data.is_available is not None else True,
-        meta_title=product_data.meta_title,
-        meta_description=product_data.meta_description,
+        name=name,
+        slug=product_slug,
+        description=description,
+        brand_id=brand_id_str,
+        company_id=company_id_str,
+        category_id=category_id_str,
+        division_id=division_id_str,
+        mrp=mrp,
+        selling_price=sellingPrice,
+        stock_quantity=int(stockQuantity) if stockQuantity is not None else 0,
+        min_order_quantity=int(minOrderQuantity) if minOrderQuantity is not None else 1,
+        unit=unit,
+        pieces_per_set=int(piecesPerSet) if piecesPerSet is not None else 1,
+        specifications=specifications,
+        is_featured=(str(isFeatured).lower() in ("true", "1", "yes")) if isFeatured is not None else False,
+        is_available=(str(isAvailable).lower() in ("true", "1", "yes")) if isAvailable is not None else True,
+        expiry_date=date.fromisoformat(expiry_date_str.strip()) if expiry_date_str else None,
+        meta_title=meta_title,
+        meta_description=meta_description,
         created_by=str(seller.id)
     )
     
     db.add(new_product)
     db.commit()
     db.refresh(new_product)
+
+    # Handle image uploads if provided
+    if image_files:
+        uploaded_images: List[ProductImage] = []
+        for idx, image in enumerate(image_files):
+            try:
+                image_url = save_uploaded_file(image, "product", new_product.id, request)
+                product_image = ProductImage(
+                    product_id=new_product.id,
+                    image_url=image_url,
+                    display_order=idx,
+                    is_primary=(primaryIndex is not None and idx == int(primaryIndex)),
+                )
+                db.add(product_image)
+                uploaded_images.append(product_image)
+            except Exception:
+                # Don't fail entire create if an image fails; keep product created.
+                continue
+        db.commit()
     
     # Log activity
     log_admin_activity(
@@ -332,7 +434,7 @@ async def update_seller_product(
     if not check_seller_product_access(seller, product):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. You can only update products from your company."
+            detail="Access denied. You can only update products created by you."
         )
     
     # Update fields
@@ -405,7 +507,7 @@ async def delete_seller_product(
     if not check_seller_product_access(seller, product):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. You can only delete products from your company."
+            detail="Access denied. You can only delete products created by you."
         )
     
     # Soft delete
@@ -442,14 +544,9 @@ async def get_seller_statistics(
     """
     query = db.query(Product)
     
-    # Sellers can only see products from their company
+    # Sellers can only see products created by them
     if seller.role == AdminRole.SELLER:
-        if not seller.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller not assigned to any company"
-            )
-        query = query.filter(Product.company_id == seller.company_id)
+        query = query.filter(Product.created_by == str(seller.id))
     
     total_products = query.count()
     active_products = query.filter(Product.is_available == True).count()
@@ -561,21 +658,10 @@ async def list_seller_companies(
 ):
     """
     List companies for sellers.
-    Sellers with assigned company see only their company.
-    Managers and above see all companies.
+    Sellers can select any company when creating products.
     """
-    
-    if seller.role == AdminRole.SELLER:
-        # Sellers see only their assigned company
-        if not seller.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller not assigned to any company"
-            )
-        companies = db.query(Company).filter(Company.id == seller.company_id).all()
-    else:
-        # Managers and above see all companies
-        companies = db.query(Company).all()
+
+    companies = db.query(Company).all()
     
     company_list = []
     for company in companies:

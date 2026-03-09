@@ -101,20 +101,9 @@ async def list_seller_companies(
 ):
     """
     List companies for sellers.
-    Sellers with assigned company see only their company.
-    Managers and above see all companies.
+    Requested behavior: sellers can sell/manage across companies, so return all companies.
     """
-    if seller.role == AdminRole.SELLER:
-        # Sellers see only their assigned company
-        if not seller.company_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seller not assigned to any company"
-            )
-        companies = db.query(Company).filter(Company.id == seller.company_id).all()
-    else:
-        # Managers and above see all companies
-        companies = db.query(Company).all()
+    companies = db.query(Company).all()
     
     company_list = []
     for company in companies:

@@ -76,6 +76,7 @@ async def list_products(
             "name": p.name,
             "slug": p.slug,
             "description": p.description,
+            "divisionId": str(p.division_id) if getattr(p, "division_id", None) else None,
             "mrp": p.mrp,
             "sellingPrice": p.selling_price,
             "stockQuantity": p.stock_quantity,
