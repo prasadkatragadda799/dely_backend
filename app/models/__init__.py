@@ -21,6 +21,7 @@ from app.models.user_payment_method import UserPaymentMethod
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.settings import Settings
 from app.models.delivery_person import DeliveryPerson
+from app.models.division import Division
 
 __all__ = [
     "User",
@@ -47,6 +48,7 @@ __all__ = [
     "Wallet",
     "WalletTransaction",
     "Settings",
-    "DeliveryPerson"
+    "DeliveryPerson",
+    "Division",
 ]
 

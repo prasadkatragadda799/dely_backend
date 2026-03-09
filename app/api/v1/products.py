@@ -8,6 +8,7 @@ from app.schemas.common import ResponseModel, PaginatedResponse, PaginationModel
 from app.models.product import Product
 from app.models.company import Company
 from app.models.category import Category
+from app.models.division import Division
 from app.utils.pagination import paginate
 from app.utils.discount import calculate_discount_percentage
 from typing import Optional
@@ -17,6 +18,14 @@ from uuid import UUID
 router = APIRouter()
 
 
+def _resolve_division_id(db: Session, division_slug: Optional[str]):
+    """Return division id for slug, or None for default (Grocery)."""
+    if not division_slug or division_slug == "default":
+        return None
+    d = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
+    return str(d.id) if d else None
+
+
 @router.get("", response_model=ResponseModel)
 def get_products(
     page: int = Query(1, ge=1),
@@ -24,6 +33,7 @@ def get_products(
     category: Optional[UUID] = None,
     company: Optional[UUID] = None,
     brand: Optional[UUID] = None,
+    division_slug: Optional[str] = Query(None, description="Filter by division, e.g. 'kitchen'. Omit for default Grocery."),
     search: Optional[str] = None,
     min_price: Optional[Decimal] = None,
     max_price: Optional[Decimal] = None,
@@ -34,7 +44,14 @@ def get_products(
 ):
     """Get all products with filters (Mobile App API) - Requires KYC verification"""
     query = db.query(Product).filter(Product.is_available == True)
-    
+
+    # Division filter (e.g. Kitchen)
+    division_id = _resolve_division_id(db, division_slug)
+    if division_id is not None:
+        query = query.filter(Product.division_id == division_id)
+    else:
+        query = query.filter(Product.division_id == None)
+
     # Apply filters (convert UUIDs to strings for database queries)
     if category:
         category_id_str = str(category)

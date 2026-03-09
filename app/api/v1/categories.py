@@ -7,18 +7,39 @@ from app.schemas.product import ProductListResponse
 from app.schemas.common import ResponseModel
 from app.models.category import Category
 from app.models.product import Product
+from app.models.division import Division
 from app.utils.pagination import paginate
 from uuid import UUID
+from typing import Optional
 
 router = APIRouter()
 
 
+def _resolve_division_id(db: Session, division_slug: Optional[str]):
+    """Return division id for slug, or None for default (Grocery)."""
+    if not division_slug:
+        return None
+    if division_slug == "default":
+        return None
+    d = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
+    return str(d.id) if d else None
+
+
 @router.get("", response_model=ResponseModel)
-def get_categories(db: Session = Depends(get_db)):
-    """Get all categories in tree structure (Mobile App API)"""
+def get_categories(
+    division_slug: Optional[str] = Query(None, description="Filter by division slug, e.g. 'kitchen'. Omit for default Grocery."),
+    db: Session = Depends(get_db)
+):
+    """Get all categories in tree structure (Mobile App API). Optionally filter by division (e.g. kitchen)."""
     from sqlalchemy import func
-    
-    all_categories = db.query(Category).filter(Category.is_active == True).all()
+
+    division_id = _resolve_division_id(db, division_slug)
+    query = db.query(Category).filter(Category.is_active == True)
+    if division_id is not None:
+        query = query.filter(Category.division_id == division_id)
+    else:
+        query = query.filter(Category.division_id == None)
+    all_categories = query.all()
     
     def build_tree(parent_id=None):
         result = []
@@ -69,9 +90,10 @@ def get_category_products(
     category_id: UUID,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    division_slug: Optional[str] = Query(None, description="Division context, e.g. 'kitchen'."),
     db: Session = Depends(get_db)
 ):
-    """Get products by category"""
+    """Get products by category. Category must belong to the given division if division_slug is passed."""
     category_id_str = str(category_id)
     category = db.query(Category).filter(Category.id == category_id_str).first()
     if not category:

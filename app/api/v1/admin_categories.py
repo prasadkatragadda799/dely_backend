@@ -67,6 +67,7 @@ def build_category_tree(db: Session, categories: list, parent_id: Optional[str] 
                     "icon": cat.icon,
                     "color": cat.color,
                     "parentId": str(cat.parent_id) if cat.parent_id else None,
+                    "divisionId": str(cat.division_id) if getattr(cat, 'division_id', None) else None,
                     "displayOrder": cat.display_order or 0,
                     "isActive": cat.is_active if hasattr(cat, 'is_active') else True,
                     "image": getattr(cat, 'image', None),
@@ -158,6 +159,7 @@ async def get_category(
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
+        "divisionId": str(category.division_id) if getattr(category, 'division_id', None) else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
         "image": getattr(category, 'image', None),
@@ -168,7 +170,7 @@ async def get_category(
         "createdAt": category.created_at.isoformat() if category.created_at else None,
         "updatedAt": category.updated_at.isoformat() if category.updated_at else None
     }
-    
+
     return ResponseModel(
         success=True,
         data=category_data,
@@ -218,6 +220,7 @@ async def create_category(
         slug=slug,
         description=category_data.description,
         parent_id=category_data.parent_id,
+        division_id=str(category_data.division_id) if category_data.division_id else None,
         icon=category_data.icon,
         color=category_data.color,
         display_order=category_data.display_order,
@@ -259,6 +262,7 @@ async def create_category(
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
+        "divisionId": str(category.division_id) if category.division_id else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
         "image": getattr(category, 'image', None),
@@ -269,7 +273,7 @@ async def create_category(
         "createdAt": category.created_at.isoformat() if category.created_at else None,
         "updatedAt": category.updated_at.isoformat() if category.updated_at else None
     }
-    
+
     return ResponseModel(
         success=True,
         data=category_response,
@@ -339,6 +343,8 @@ async def update_category(
     # Update fields
     update_data = category_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key == "division_id" and value is not None:
+            value = str(value)
         if hasattr(category, key):
             setattr(category, key, value)
     
@@ -390,7 +396,6 @@ async def update_category(
         request=request
     )
     
-    # Build response
     category_response = {
         "id": str(category.id),
         "name": category.name,
@@ -398,6 +403,7 @@ async def update_category(
         "icon": category.icon,
         "color": category.color,
         "parentId": str(category.parent_id) if category.parent_id else None,
+        "divisionId": str(category.division_id) if category.division_id else None,
         "displayOrder": category.display_order,
         "isActive": category.is_active,
         "image": getattr(category, 'image', None),
@@ -407,7 +413,7 @@ async def update_category(
         "children": children_data,
         "updatedAt": category.updated_at.isoformat() if category.updated_at else None
     }
-    
+
     return ResponseModel(
         success=True,
         data=category_response,

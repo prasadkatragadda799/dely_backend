@@ -16,6 +16,7 @@ class Product(Base):
     brand_id = Column(String(36), ForeignKey("brands.id", ondelete="SET NULL"), nullable=True)
     company_id = Column(String(36), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
     category_id = Column(String(36), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True)  # NULL = default division
     mrp = Column(Numeric(10, 2), nullable=False)  # Maximum Retail Price
     selling_price = Column(Numeric(10, 2), nullable=False)  # Selling Price
     stock_quantity = Column(Integer, default=0, nullable=False)
@@ -53,6 +54,7 @@ class Product(Base):
     brand_rel = relationship("Brand", back_populates="products", foreign_keys=[brand_id])
     company = relationship("Company", back_populates="products")
     category = relationship("Category", back_populates="products")
+    division = relationship("Division", back_populates="products")
     creator = relationship("Admin", back_populates="created_products", foreign_keys=[created_by])
     product_images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.display_order")
     variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")

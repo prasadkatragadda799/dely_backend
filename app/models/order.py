@@ -24,6 +24,7 @@ class Order(Base):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_number = Column(String(50), unique=True, nullable=False, index=True)
+    division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)  # Kitchen / Grocery etc.
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     delivery_person_id = Column(String(36), ForeignKey("delivery_persons.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, nullable=False)

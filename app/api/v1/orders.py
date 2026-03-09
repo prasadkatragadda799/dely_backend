@@ -54,10 +54,17 @@ def create_order(
     items_data = [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items]
     totals = calculate_order_totals(items_data, db)
     
-    # Create order
+    # Resolve division_id from first product (for Kitchen / Grocery)
+    division_id = None
+    if order_data.items:
+        first_product = db.query(Product).filter(Product.id == str(order_data.items[0].product_id)).first()
+        if first_product and first_product.division_id:
+            division_id = str(first_product.division_id)
+
     order = Order(
         order_number=generate_order_number(),
         user_id=str(current_user.id),
+        division_id=division_id,
         status=OrderStatus.PENDING,
         delivery_address=delivery_address,
         payment_method=order_data.payment_method,
@@ -66,14 +73,12 @@ def create_order(
         discount=totals["discount"],
         delivery_charge=totals["delivery_charge"],
         tax=totals["tax"],
-        # DB schema requires `total` (NOT NULL). Keep `total_amount` in sync if present.
         total=totals["total"],
         total_amount=totals["total"],
     )
     db.add(order)
     db.flush()
-    
-    # Create order items and update stock
+
     order_items_data = []
     for item in order_data.items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()

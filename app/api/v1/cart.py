@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -6,17 +6,29 @@ from app.schemas.cart import CartItemAdd, CartItemUpdate, CartResponse, CartItem
 from app.schemas.common import ResponseModel
 from app.models.cart import Cart
 from app.models.product import Product
-from app.services.cart_service import get_cart_summary
+from app.services.cart_service import get_cart_summary, get_cart_summary_for_division
 from uuid import UUID
 from decimal import Decimal
+from typing import Optional
 
 router = APIRouter()
 
 
 @router.get("", response_model=ResponseModel)
-def get_cart(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Get user's cart"""
+def get_cart(
+    division_slug: Optional[str] = Query(None, description="Show cart for this division only (e.g. kitchen). Omit for all items."),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's cart. Optionally filter by division (e.g. Kitchen) for tab-specific cart."""
+    from app.models.division import Division
     cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
+    if division_slug and division_slug != "default":
+        div = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
+        if div:
+            cart_items = [c for c in cart_items if c.division_id == str(div.id)]
+        else:
+            cart_items = []
     
     items = []
     for item in cart_items:
@@ -61,14 +73,13 @@ def get_cart(current_user=Depends(get_current_user), db: Session = Depends(get_d
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None
             })
     
-    summary_data = get_cart_summary(db, current_user.id)
+    summary_data = get_cart_summary_for_division(db, current_user.id, [str(c.product_id) for c in cart_items]) if division_slug else get_cart_summary(db, current_user.id)
     summary = CartSummary(**summary_data)
-    
-    # Return cart with proper structure
+
     return ResponseModel(
         success=True,
         data={
-            "items": items,  # Already a list of dicts
+            "items": items,
             "summary": summary.dict()
         }
     )
@@ -80,31 +91,42 @@ def add_to_cart(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Add item to cart"""
+    """Add item to cart. Cart can only contain items from one division (Grocery or Kitchen)."""
     product = db.query(Product).filter(Product.id == str(item_data.product_id)).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     if not product.is_available:
         raise HTTPException(status_code=400, detail="Product is not available")
-    
+
     stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
     if stock < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
-    
+
     min_order = product.min_order_quantity if product.min_order_quantity else (product.min_order if hasattr(product, 'min_order') and product.min_order else 1)
     if item_data.quantity < min_order:
         raise HTTPException(
             status_code=400,
             detail=f"Minimum order quantity is {min_order}"
         )
-    
-    # Check if item already in cart
+
+    product_division_id = str(product.division_id) if product.division_id else None
+    existing_cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
+    if existing_cart_items:
+        first_item = existing_cart_items[0]
+        first_product = db.query(Product).filter(Product.id == str(first_item.product_id)).first()
+        existing_division_id = (first_item.division_id or (str(first_product.division_id) if first_product and first_product.division_id else None))
+        if existing_division_id != product_division_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cart can only contain items from one division (Grocery or Kitchen). Clear cart or switch tab to add from the other."
+            )
+
     existing_item = db.query(Cart).filter(
         Cart.user_id == str(current_user.id),
         Cart.product_id == str(item_data.product_id)
     ).first()
-    
+
     if existing_item:
         existing_item.quantity += item_data.quantity
         db.commit()
@@ -113,6 +135,7 @@ def add_to_cart(
         cart_item = Cart(
             user_id=str(current_user.id),
             product_id=str(item_data.product_id),
+            division_id=product_division_id,
             quantity=item_data.quantity
         )
         db.add(cart_item)

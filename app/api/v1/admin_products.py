@@ -154,6 +154,8 @@ async def create_product(
     # Accept both camelCase and snake_case for compatibility with different admin UIs
     categoryId: Optional[str] = Form(None),  # camelCase
     category_id: Optional[str] = Form(None),  # snake_case
+    divisionId: Optional[str] = Form(None),  # camelCase - Kitchen / Grocery
+    division_id: Optional[str] = Form(None),  # snake_case
     brand_id: Optional[str] = Form(None),  # snake_case
     brandId: Optional[str] = Form(None),  # camelCase
     company_id: Optional[str] = Form(None),  # snake_case
@@ -200,6 +202,7 @@ async def create_product(
 
     # Normalize field variants
     categoryId = categoryId or category_id
+    division_id_param = divisionId or division_id
     brand_id = brand_id or brandId
     company_id = company_id or companyId
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
@@ -306,7 +309,18 @@ async def create_product(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid company ID format"
             )
-    
+
+    division_id_str: Optional[str] = None
+    if division_id_param:
+        try:
+            UUID(division_id_param)
+            division_id_str = division_id_param
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid division ID format"
+            )
+
     # Generate slug if not provided
     product_slug = slug or generate_slug(name)
     
@@ -322,6 +336,7 @@ async def create_product(
         brand_id=brand_id_str,
         company_id=company_id_str,
         category_id=category_id_str,
+        division_id=division_id_str,
         mrp=mrp,
         selling_price=sellingPrice,
         stock_quantity=stockQuantity,
@@ -448,6 +463,8 @@ async def update_product(
     description: Optional[str] = Form(None),
     categoryId: Optional[str] = Form(None),
     category_id: Optional[str] = Form(None),
+    divisionId: Optional[str] = Form(None),
+    division_id: Optional[str] = Form(None),
     brand_id: Optional[str] = Form(None),
     brandId: Optional[str] = Form(None),
     company_id: Optional[str] = Form(None),
@@ -511,6 +528,7 @@ async def update_product(
 
     # Normalize field variants (prefer explicit camelCase if present, else snake_case)
     categoryId = categoryId if categoryId is not None else category_id
+    division_id_param = divisionId if divisionId is not None else division_id
     brand_id = brand_id if brand_id is not None else brandId
     company_id = company_id if company_id is not None else companyId
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
@@ -610,6 +628,21 @@ async def update_product(
                 )
             product.company_id = company_id
             update_data["company_id"] = company_id
+
+    if division_id_param is not None:
+        if division_id_param == "":
+            product.division_id = None
+            update_data["division_id"] = None
+        else:
+            try:
+                UUID(division_id_param)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid division ID format",
+                )
+            product.division_id = division_id_param
+            update_data["division_id"] = division_id_param
 
     # Simple scalar fields
     if name is not None:

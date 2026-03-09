@@ -12,6 +12,7 @@ class AdminCategoryCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
     parent_id: Optional[UUID] = None
+    division_id: Optional[UUID] = None  # Kitchen / Grocery etc.; null = default
     icon: Optional[str] = Field(None, max_length=10)  # Emoji (1-2 characters)
     color: Optional[str] = Field(None, max_length=7)  # Hex color code
     display_order: int = Field(default=0, ge=0)
@@ -40,6 +41,7 @@ class AdminCategoryUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
     parent_id: Optional[UUID] = None
+    division_id: Optional[UUID] = None
     icon: Optional[str] = Field(None, max_length=10)
     color: Optional[str] = Field(None, max_length=7)
     display_order: Optional[int] = Field(None, ge=0)

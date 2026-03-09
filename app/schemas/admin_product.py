@@ -15,6 +15,7 @@ class AdminProductCreate(BaseModel):
     brand_id: Optional[UUID] = None
     company_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
+    division_id: Optional[UUID] = None  # Kitchen / Grocery; null = default
     mrp: Decimal = Field(..., gt=0)
     selling_price: Decimal = Field(..., gt=0)
     stock_quantity: int = Field(default=0, ge=0)
@@ -35,6 +36,7 @@ class AdminProductUpdate(BaseModel):
     brand_id: Optional[UUID] = None
     company_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
+    division_id: Optional[UUID] = None
     mrp: Optional[Decimal] = Field(None, gt=0)
     selling_price: Optional[Decimal] = Field(None, gt=0)
     stock_quantity: Optional[int] = Field(None, ge=0)
@@ -85,6 +87,7 @@ class AdminProductResponse(BaseModel):
     brand: Optional[Dict[str, Any]] = None
     company: Optional[Dict[str, Any]] = None
     category: Optional[Dict[str, Any]] = None
+    division_id: Optional[UUID] = None
     mrp: Decimal
     selling_price: Decimal
     stock_quantity: int
@@ -123,6 +126,7 @@ class AdminProductResponse(BaseModel):
             'name': obj.name,
             'slug': obj.slug,
             'description': obj.description,
+            'division_id': UUID(str(obj.division_id)) if getattr(obj, 'division_id', None) else None,
             'mrp': obj.mrp,
             'selling_price': obj.selling_price,
             'stock_quantity': obj.stock_quantity,
