@@ -1,0 +1,17 @@
+[Unit]
+Description=Dely Backend API (Gunicorn/FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+WorkingDirectory=/var/www/dely_backend
+EnvironmentFile=/var/www/dely_backend/.env
+ExecStart=/var/www/dely_backend/venv/bin/bash /var/www/dely_backend/start.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

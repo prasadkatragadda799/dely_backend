@@ -1,15 +1,18 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
 import os
 from functools import lru_cache
+
+DEFAULT_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+_debug_env = os.getenv("DEBUG")
+DEFAULT_DEBUG = _debug_env.lower() == "true" if _debug_env is not None else DEFAULT_ENVIRONMENT != "production"
 
 
 class Settings(BaseSettings):
     # App Settings
     APP_NAME: str = "Dely API"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"  # Default to True for development
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")  # Default to development
+    DEBUG: bool = DEFAULT_DEBUG
+    ENVIRONMENT: str = DEFAULT_ENVIRONMENT
     
     # Server
     HOST: str = "0.0.0.0"
@@ -24,14 +27,16 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dely.db")
     
     # JWT
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "192837465")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]
-    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174,https://yourdomain.com")
+    ALLOWED_ORIGINS: str = os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174",
+    )
     
     # Email
     SMTP_HOST: str = "smtp.gmail.com"

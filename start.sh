@@ -1,23 +1,27 @@
 #!/bin/bash
 set -e
 
-echo "Running database migrations..."
-# Retry migrations up to 3 times with 5 second delays
-for i in {1..3}; do
-    echo "Migration attempt $i of 3..."
-    if alembic upgrade head; then
-        echo "Migrations completed successfully!"
-        break
-    else
-        if [ $i -eq 3 ]; then
-            echo "[ERROR] Migrations failed after 3 attempts!"
-            echo "[ERROR] Please check database connection and migration files."
-            exit 1
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    echo "Running database migrations..."
+    # Retry migrations up to 3 times with 5 second delays
+    for i in {1..3}; do
+        echo "Migration attempt $i of 3..."
+        if alembic upgrade head; then
+            echo "Migrations completed successfully!"
+            break
+        else
+            if [ $i -eq 3 ]; then
+                echo "[ERROR] Migrations failed after 3 attempts!"
+                echo "[ERROR] Please check database connection and migration files."
+                exit 1
+            fi
+            echo "Migration failed, retrying in 5 seconds..."
+            sleep 5
         fi
-        echo "Migration failed, retrying in 5 seconds..."
-        sleep 5
-    fi
-done
+    done
+else
+    echo "Skipping migrations (RUN_MIGRATIONS=false)"
+fi
 
 # Create admin user if credentials are provided and no admin exists
 # Run with timeout to avoid blocking startup
@@ -28,16 +32,15 @@ fi
 
 echo "Starting application..."
 
-# Render (and most PaaS) expose the app on a single port.
-# Default to 10000 if PORT is not explicitly set so the container
-# always binds to a known port for health checks/port scanning.
-PORT="${PORT:-10000}"
-echo "Binding Gunicorn to 0.0.0.0:${PORT}"
+PORT="${PORT:-8000}"
+WEB_CONCURRENCY="${WEB_CONCURRENCY:-2}"
+GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-120}"
+echo "Binding Gunicorn to 0.0.0.0:${PORT} with ${WEB_CONCURRENCY} workers"
 
 exec gunicorn app.main:app \
   --bind "0.0.0.0:${PORT}" \
-  --workers 2 \
+  --workers "${WEB_CONCURRENCY}" \
   --worker-class uvicorn.workers.UvicornWorker \
-  --timeout 120 \
+  --timeout "${GUNICORN_TIMEOUT}" \
   --keep-alive 5
 
