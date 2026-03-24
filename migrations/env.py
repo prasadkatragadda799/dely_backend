@@ -25,7 +25,8 @@ if config.config_file_name is not None:
 database_url = settings.DATABASE_URL
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
-config.set_main_option("sqlalchemy.url", database_url)
+# ConfigParser treats "%" as interpolation; URL-encoded passwords contain "%2A" etc.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support
