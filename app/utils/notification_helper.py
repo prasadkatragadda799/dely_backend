@@ -1,6 +1,8 @@
 """
 Helper to create in-app notifications for KYC and order status updates.
 """
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from app.models.notification import Notification
 from uuid import UUID
@@ -12,7 +14,7 @@ def create_notification(
     type: str,
     title: str,
     message: str,
-    data: dict | None = None,
+    data: Optional[dict] = None,
 ) -> Notification:
     """
     Create a notification for a user. Commits the notification; caller may be inside a larger transaction.
