@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.database import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, ChangePassword
 from app.schemas.common import ResponseModel
@@ -265,9 +265,25 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     )
 
 
+# Backwards-compatible aliases for clients that use different path styles.
+@router.post("/send_otp", response_model=ResponseModel)
+def send_otp_alias(payload: SendOtpRequest, db: Session = Depends(get_db)):
+    return send_otp(payload, db)
+
+
+@router.post("/sendOtp", response_model=ResponseModel)
+def send_otp_camel_alias(payload: SendOtpRequest, db: Session = Depends(get_db)):
+    return send_otp(payload, db)
+
+
+@router.post("/sendotp", response_model=ResponseModel)
+def send_otp_no_dash_alias(payload: SendOtpRequest, db: Session = Depends(get_db)):
+    return send_otp(payload, db)
+
+
 class VerifyOtpRequest(BaseModel):
     phone: str
-    requestId: str
+    requestId: str = Field(validation_alias="request_id")
     otp: str
 
 
@@ -350,4 +366,19 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
         },
         message="OTP verified",
     )
+
+
+@router.post("/verify_otp", response_model=ResponseModel)
+def verify_otp_alias(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    return verify_otp(payload, db)
+
+
+@router.post("/verifyOtp", response_model=ResponseModel)
+def verify_otp_camel_alias(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    return verify_otp(payload, db)
+
+
+@router.post("/verifyotp", response_model=ResponseModel)
+def verify_otp_no_dash_alias(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    return verify_otp(payload, db)
 

@@ -70,9 +70,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## API Endpoints
 
-### Authentication (6 endpoints)
+### Authentication (8 endpoints)
 - `POST /api/v1/auth/register` - Register new user
 - `POST /api/v1/auth/login` - Login user
+- `POST /api/v1/auth/send-otp` - Send OTP
+- `POST /api/v1/auth/verify-otp` - Verify OTP and login
 - `POST /api/v1/auth/forgot-password` - Request password reset
 - `POST /api/v1/auth/reset-password` - Reset password
 - `POST /api/v1/auth/refresh-token` - Refresh access token
