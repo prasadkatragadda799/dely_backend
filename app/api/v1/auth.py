@@ -9,7 +9,7 @@ from app.models.user import User
 from app.utils.security import verify_password, get_password_hash, decode_token, create_access_token
 from app.utils.email import send_password_reset_email
 from app.api.deps import get_current_user
-from datetime import timedelta
+from datetime import timedelta, datetime
 from app.config import settings
 import secrets
 import requests
@@ -23,36 +23,50 @@ router = APIRouter()
 
 @router.post("/register", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user with kyc_status = 'not_verified'"""
+    """Register a new user, then send OTP for verification."""
     try:
         user = register_user(db, user_data)
-        tokens = create_tokens(user)
         
-        # Get KYC status as string with all variations
-        kyc_status = user.kyc_status.value if hasattr(user.kyc_status, 'value') else str(user.kyc_status)
-        is_kyc_verified = kyc_status == "verified"
-        
-        # Format user data with all field variations
-        user_data_response = {
-            "id": str(user.id),
-            "name": user.name,
-            "email": user.email,
-            "phone": user.phone,
-            "business_name": user.business_name,
-            "kyc_status": kyc_status,
-            "kycStatus": kyc_status,  # camelCase alternative
-            "is_kyc_verified": is_kyc_verified,  # Boolean alternative
-            "created_at": user.created_at.isoformat() if user.created_at else None
-        }
-        
+        # Send OTP immediately after creating the user.
+        # NOTE: OTP verification is required before the user can login.
+        if not settings.TWO_FACTOR_API_KEY:
+            # Avoid leaving an unusable user record behind.
+            db.delete(user)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="TWO_FACTOR_API_KEY is not configured",
+            )
+
+        phone = (user_data.phone or "").strip()
+        normalized = "".join(ch for ch in phone if ch.isdigit())
+        if len(normalized) < 10:
+            db.delete(user)
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+        url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+        resp = requests.get(url, timeout=10)
+        data = resp.json() if resp.content else {}
+
+        if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
+            db.delete(user)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to send OTP",
+            )
+
+        request_id = str(data["Details"])
+
         return ResponseModel(
             success=True,
             data={
-                "user": user_data_response,
-                "token": tokens["token"],
-                "refresh_token": tokens["refresh_token"]
+                "request_id": request_id,
+                "user_id": str(user.id),
+                "phone": user.phone,
             },
-            message="Registration successful"
+            message="Registration successful. OTP sent.",
         )
     except HTTPException:
         raise
@@ -335,11 +349,12 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found. Please register first.",
         )
+
+    # Activate user after successful OTP verification.
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
-        )
+        user.is_active = True
+        user.last_active_at = datetime.utcnow()
+        db.commit()
 
     tokens = create_tokens(user)
 

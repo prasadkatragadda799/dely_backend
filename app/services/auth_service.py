@@ -57,6 +57,8 @@ def register_user(db: Session, user_data: UserCreate) -> User:
         state=user_data.state,
         pincode=user_data.pincode,
         kyc_status=KYCStatus.NOT_VERIFIED,  # Set to not_verified for new registrations
+        # OTP verification is required before allowing login.
+        is_active=False,
         last_active_at=datetime.utcnow()  # Set initial last_active_at
     )
     
@@ -89,8 +91,8 @@ def authenticate_user(db: Session, email: str = None, phone: str = None, passwor
     
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please register first."
         )
     
     if not verify_password(password, user.password_hash):
@@ -102,7 +104,7 @@ def authenticate_user(db: Session, email: str = None, phone: str = None, passwor
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
+            detail="Account not verified. Please verify OTP (register/OTP first)."
         )
     
     # Update last_active_at timestamp on login
