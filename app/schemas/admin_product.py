@@ -84,6 +84,7 @@ class AdminProductResponse(BaseModel):
     name: str
     slug: str
     description: Optional[str]
+    hsnCode: Optional[str] = None
     brand: Optional[Dict[str, Any]] = None
     company: Optional[Dict[str, Any]] = None
     category: Optional[Dict[str, Any]] = None
@@ -121,11 +122,20 @@ class AdminProductResponse(BaseModel):
                 images = []
         
         # Create a dict with images handled
+        # Prefer product-level HSN; fall back to the first variant that has one.
+        hsn_code = getattr(obj, "hsn_code", None)
+        if not hsn_code and hasattr(obj, "variants") and obj.variants:
+            for v in obj.variants:
+                hsn_code = getattr(v, "hsn_code", None)
+                if hsn_code:
+                    break
+
         data = {
             'id': obj.id,
             'name': obj.name,
             'slug': obj.slug,
             'description': obj.description,
+            'hsnCode': hsn_code,
             'division_id': UUID(str(obj.division_id)) if getattr(obj, 'division_id', None) else None,
             'mrp': obj.mrp,
             'selling_price': obj.selling_price,

@@ -71,11 +71,21 @@ async def list_products(
     # Format response
     product_list = []
     for p in products:
+        # Prefer product-level HSN; fall back to the first variant that has an HSN.
+        product_variants = getattr(p, "variants", []) or []
+        hsn_code = getattr(p, "hsn_code", None)
+        if not hsn_code and product_variants:
+            for v in product_variants:
+                hsn_code = getattr(v, "hsn_code", None)
+                if hsn_code:
+                    break
+
         product_data = {
             "id": p.id,
             "name": p.name,
             "slug": p.slug,
             "description": p.description,
+            "hsnCode": hsn_code,
             "divisionId": str(p.division_id) if getattr(p, "division_id", None) else None,
             "mrp": p.mrp,
             "sellingPrice": p.selling_price,
@@ -98,7 +108,7 @@ async def list_products(
                     "specialPrice": getattr(v, "special_price", None),
                     "freeItem": getattr(v, "free_item", None),
                 }
-                for v in getattr(p, "variants", []) or []
+                for v in product_variants
             ],
             "createdAt": p.created_at,
             "updatedAt": p.updated_at
