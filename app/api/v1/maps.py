@@ -256,3 +256,59 @@ def reverse_geocode(
         message="Location resolved successfully",
     )
 
+
+@router.get("/geocode", response_model=ResponseModel)
+def geocode_address(
+    address: str = Query(..., min_length=3),
+):
+    """
+    Geocode a plain address string to lat/lng using Google Geocoding API.
+    Useful when an order has textual delivery_address but no coordinates.
+    """
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=500, detail="GOOGLE_MAPS_API_KEY is not configured")
+
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "address": address,
+        "key": settings.GOOGLE_MAPS_API_KEY,
+        "language": "en",
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to call Google Geocoding: {str(e)}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Google Geocoding failed: {resp.text[:500]}")
+
+    payload = resp.json() if resp.content else {}
+    if payload.get("status") != "OK":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Google Geocoding returned status={payload.get('status')}",
+        )
+
+    results = payload.get("results") or []
+    if not results:
+        raise HTTPException(status_code=404, detail="No coordinates found for address")
+
+    top = results[0]
+    loc = ((top.get("geometry") or {}).get("location") or {})
+    lat = loc.get("lat")
+    lng = loc.get("lng")
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        raise HTTPException(status_code=502, detail="Google Geocoding returned invalid location")
+
+    return ResponseModel(
+        success=True,
+        data={
+            "latitude": float(lat),
+            "longitude": float(lng),
+            "formatted_address": top.get("formatted_address"),
+            "input_address": address,
+        },
+        message="Address geocoded successfully",
+    )
+
