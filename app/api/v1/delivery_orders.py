@@ -188,47 +188,46 @@ async def update_delivery_status(
     db: Session = Depends(get_db)
 ):
     """Update order delivery status"""
-    order = db.query(Order).filter(
-        Order.id == order_id,
-        Order.delivery_person_id == delivery_person.id
-    ).first()
-    
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found or not assigned to you"
-        )
-    
-    requested_status = (status_update.status or "").strip().lower()
-
-    supports_out_for_delivery = _supports_out_for_delivery(db)
-
-    # Map delivery-app statuses to DB enum literals
-    status_mapping = {
-        "picked_up": "SHIPPED",
-        "shipped": "SHIPPED",
-        "in_transit": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
-        "out_for_delivery": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
-        "arrived": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
-        "delivered": "DELIVERED",
-    }
-
-    if requested_status not in status_mapping:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid status: {status_update.status}"
-        )
-
-    # Persist DB enum literal explicitly (matches live DB enum labels).
-    db_status_value = status_mapping[requested_status]
-    
-    # Add notes if provided
-    if status_update.notes:
-        current_notes = order.notes or ""
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
-
     try:
+        order = db.query(Order).filter(
+            Order.id == order_id,
+            Order.delivery_person_id == delivery_person.id
+        ).first()
+
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found or not assigned to you"
+            )
+
+        requested_status = (status_update.status or "").strip().lower()
+        supports_out_for_delivery = _supports_out_for_delivery(db)
+
+        # Map delivery-app statuses to DB enum literals
+        status_mapping = {
+            "picked_up": "SHIPPED",
+            "shipped": "SHIPPED",
+            "in_transit": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+            "out_for_delivery": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+            "arrived": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+            "delivered": "DELIVERED",
+        }
+
+        if requested_status not in status_mapping:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {status_update.status}"
+            )
+
+        # Persist DB enum literal explicitly (matches live DB enum labels).
+        db_status_value = status_mapping[requested_status]
+
+        # Add notes if provided
+        if status_update.notes:
+            current_notes = order.notes or ""
+            timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
+
         # Bypass SQLAlchemy Enum name coercion and cast directly to DB enum literal.
         db.execute(
             text(
@@ -244,6 +243,44 @@ async def update_delivery_status(
         )
         db.commit()
         db.refresh(order)
+        # Notify order owner about delivery status
+        status_value = order.status.value if isinstance(order.status, OrderStatus) else str(order.status)
+        if order.user_id:
+            from app.utils.notification_helper import create_notification
+            _type = "delivery" if status_value.lower() in ("out_for_delivery", "delivered", "shipped") else "order"
+            _title = f"Order #{order.order_number} {status_value.replace('_', ' ')}"
+            _msg = f"Your order has been updated to: {status_value.replace('_', ' ')}."
+            try:
+                create_notification(
+                    db=db,
+                    user_id=order.user_id,
+                    type=_type,
+                    title=_title,
+                    message=_msg,
+                    data={"order_id": str(order.id), "order_number": order.order_number, "status": status_value},
+                )
+            except Exception:
+                pass
+
+        # Update delivery person location if provided
+        if status_update.latitude is not None and status_update.longitude is not None:
+            delivery_person.current_latitude = status_update.latitude
+            delivery_person.current_longitude = status_update.longitude
+            delivery_person.last_location_update = datetime.utcnow()
+            db.commit()
+
+        return ResponseModel(
+            success=True,
+            data={
+                "orderId": order.id,
+                "status": status_value,
+                "updatedAt": datetime.utcnow().isoformat()
+            },
+            message=f"Order status updated to {requested_status}"
+        )
+    except HTTPException:
+        db.rollback()
+        raise
     except (StatementError, DataError, IntegrityError) as exc:
         db.rollback()
         raise HTTPException(
@@ -256,43 +293,6 @@ async def update_delivery_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update order status due to server error: {str(exc)}",
         )
-
-    # Notify order owner about delivery status
-    status_value = order.status.value if isinstance(order.status, OrderStatus) else str(order.status)
-
-    if order.user_id:
-        from app.utils.notification_helper import create_notification
-        _type = "delivery" if status_value.lower() in ("out_for_delivery", "delivered", "shipped") else "order"
-        _title = f"Order #{order.order_number} {status_value.replace('_', ' ')}"
-        _msg = f"Your order has been updated to: {status_value.replace('_', ' ')}."
-        try:
-            create_notification(
-                db=db,
-                user_id=order.user_id,
-                type=_type,
-                title=_title,
-                message=_msg,
-                data={"order_id": str(order.id), "order_number": order.order_number, "status": status_value},
-            )
-        except Exception:
-            pass
-
-    # Update delivery person location if provided
-    if status_update.latitude is not None and status_update.longitude is not None:
-        delivery_person.current_latitude = status_update.latitude
-        delivery_person.current_longitude = status_update.longitude
-        delivery_person.last_location_update = datetime.utcnow()
-        db.commit()
-
-    return ResponseModel(
-        success=True,
-        data={
-            "orderId": order.id,
-            "status": status_value,
-            "updatedAt": datetime.utcnow().isoformat()
-        },
-        message=f"Order status updated to {requested_status}"
-    )
 
 
 @router.post("/location", response_model=ResponseModel)
