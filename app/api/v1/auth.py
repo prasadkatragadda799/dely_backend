@@ -30,6 +30,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         # Send OTP immediately after creating the user.
         # NOTE: OTP verification is required before the user can login.
         if not settings.TWO_FACTOR_API_KEY:
+            print("[AUTH/register] TWO_FACTOR_API_KEY is not configured")
             # Avoid leaving an unusable user record behind.
             db.delete(user)
             db.commit()
@@ -41,15 +42,18 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         phone = (user_data.phone or "").strip()
         normalized = "".join(ch for ch in phone if ch.isdigit())
         if len(normalized) < 10:
+            print(f"[AUTH/register] Invalid phone provided: {phone}")
             db.delete(user)
             db.commit()
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
         url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+        print(f"[AUTH/register] Sending OTP to {normalized} (user={user.email})")
         resp = requests.get(url, timeout=10)
         data = resp.json() if resp.content else {}
 
         if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
+            print(f"[AUTH/register] OTP send failed for {normalized}: {data}")
             db.delete(user)
             db.commit()
             raise HTTPException(
@@ -58,6 +62,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             )
 
         request_id = str(data["Details"])
+        print(f"[AUTH/register] OTP sent request_id={request_id} to {normalized}")
 
         return ResponseModel(
             success=True,
