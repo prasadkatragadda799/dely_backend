@@ -35,7 +35,10 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = os.getenv(
         "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174",
+        # In production, don't assume localhost origins.
+        # If ALLOWED_ORIGINS is not explicitly configured, we want the API
+        # to remain functional (CORS will be handled as "allow all" by main.py).
+        "" if DEFAULT_ENVIRONMENT == "production" else "http://localhost:3000,http://localhost:8080,http://localhost:5173,http://localhost:5174",
     )
     
     # Email
