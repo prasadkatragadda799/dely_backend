@@ -25,8 +25,14 @@ def initiate_payment(
     
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    if order.status.value != "pending":
+
+    # Be defensive: `order.status` may be an enum or a raw string depending on DB/migrations.
+    order_status = getattr(order, "status", None)
+    order_status_value = (
+        order_status.value if hasattr(order_status, "value") else str(order_status)
+    ).lower().strip()
+
+    if order_status_value != "pending":
         raise HTTPException(status_code=400, detail="Order cannot be paid")
     
     # Generate payment ID
@@ -35,14 +41,20 @@ def initiate_payment(
     # In production, integrate with Razorpay/Paytm
     # For now, return mock response
     payment_url = None
-    if payment_data.payment_method.lower() == "online":
+    payment_method_normalized = (payment_data.payment_method or "").lower().strip()
+    if not payment_method_normalized:
+        raise HTTPException(status_code=400, detail="payment_method is required")
+
+    if payment_method_normalized == "online":
         payment_url = f"https://payment-gateway.com/pay/{payment_id}"
     
     # Update order payment details
     payment_details = payment_data.payment_details or {}
+    if not isinstance(payment_details, dict):
+        payment_details = {}
     order.payment_details = {
         "payment_id": payment_id,
-        "payment_method": payment_data.payment_method,
+        "payment_method": payment_method_normalized,
         **payment_details
     }
     db.commit()

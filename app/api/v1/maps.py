@@ -159,3 +159,100 @@ def get_directions(
         message="Directions retrieved successfully",
     )
 
+
+@router.get("/reverse-geocode", response_model=ResponseModel)
+def reverse_geocode(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+):
+    """
+    Reverse-geocode coordinates into address components using Google Geocoding API.
+    This is used by the mobile app to autofill delivery address.
+    """
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=500, detail="GOOGLE_MAPS_API_KEY is not configured")
+
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "latlng": f"{lat},{lng}",
+        "key": settings.GOOGLE_MAPS_API_KEY,
+        "language": "en",
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to call Google Geocoding: {str(e)}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Google Geocoding failed: {resp.text[:500]}")
+
+    payload = resp.json() if resp.content else {}
+    if payload.get("status") != "OK":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Google Geocoding returned status={payload.get('status')}",
+        )
+
+    results = payload.get("results") or []
+    if not results:
+        raise HTTPException(status_code=404, detail="No address found for coordinates")
+
+    top = results[0]
+    formatted_address = top.get("formatted_address")
+
+    components = top.get("address_components") or []
+
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    route: Optional[str] = None
+    street_number: Optional[str] = None
+    sublocality: Optional[str] = None
+
+    for comp in components:
+        types = comp.get("types") or []
+        long_name = comp.get("long_name")
+        if not long_name:
+            continue
+
+        if "postal_code" in types:
+            postal_code = long_name
+        if "locality" in types:
+            city = long_name
+        if "administrative_area_level_1" in types:
+            state = long_name
+        if "route" in types:
+            route = long_name
+        if "street_number" in types:
+            street_number = long_name
+        if "sublocality_level_1" in types:
+            sublocality = long_name
+
+    # Build best-effort address line 1.
+    address_line1 = ""
+    if street_number and route:
+        address_line1 = f"{street_number} {route}"
+    elif route:
+        address_line1 = route
+
+    if not address_line1 and isinstance(formatted_address, str):
+        address_line1 = formatted_address
+
+    address_line2 = sublocality or ""
+
+    return ResponseModel(
+        success=True,
+        data={
+            "address_line1": address_line1,
+            "address_line2": address_line2,
+            "city": city or "",
+            "state": state or "",
+            "pincode": postal_code or "",
+            "formatted_address": formatted_address,
+            "latitude": lat,
+            "longitude": lng,
+        },
+        message="Location resolved successfully",
+    )
+
