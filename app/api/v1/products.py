@@ -19,10 +19,20 @@ router = APIRouter()
 
 
 def _resolve_division_id(db: Session, division_slug: Optional[str]):
-    """Return division id for slug, or None for default (Grocery)."""
-    if not division_slug or division_slug == "default":
-        return None
-    d = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
+    """
+    Resolve division id by slug.
+
+    Note: your DB seeds a "Default grocery division" as an actual row
+    (`divisions.slug='default'`, `id=00000000-0000-0000-0000-000000000001`).
+    So we should not assume default division == `division_id == NULL`.
+    """
+    if not division_slug:
+        division_slug = "default"
+    d = (
+        db.query(Division)
+        .filter(Division.slug == division_slug, Division.is_active == True)
+        .first()
+    )
     return str(d.id) if d else None
 
 
@@ -46,11 +56,27 @@ def get_products(
     query = db.query(Product).filter(Product.is_available == True)
 
     # Division filter (e.g. Kitchen)
-    division_id = _resolve_division_id(db, division_slug)
-    if division_id is not None:
-        query = query.filter(Product.division_id == division_id)
+    #
+    # Legacy behavior assumed "default division" == `division_id IS NULL`.
+    # Current seeded data uses an actual division row with slug `default`.
+    if division_slug is None or division_slug == "default":
+        default_division_id = _resolve_division_id(db, "default")
+        if default_division_id:
+            # Include both:
+            # - legacy products stored with NULL division_id
+            # - new products stored against the seeded "default" division row
+            query = query.filter(
+                or_(Product.division_id == None, Product.division_id == default_division_id)
+            )
+        else:
+            query = query.filter(Product.division_id == None)
     else:
-        query = query.filter(Product.division_id == None)
+        division_id = _resolve_division_id(db, division_slug)
+        if division_id is not None:
+            query = query.filter(Product.division_id == division_id)
+        else:
+            # If an unknown slug is passed, fall back to legacy "default" behavior.
+            query = query.filter(Product.division_id == None)
 
     # Apply filters (convert UUIDs to strings for database queries)
     if category:
