@@ -26,8 +26,30 @@ def _resolve_division_id(db: Session, division_slug: Optional[str]):
     (`divisions.slug='default'`, `id=00000000-0000-0000-0000-000000000001`).
     So we should not assume default division == `division_id == NULL`.
     """
-    if not division_slug:
-        division_slug = "default"
+    # When frontend omits `division_slug`, treat it as "default grocery".
+    # Your DB seeds this as a *row* (not necessarily `division_id IS NULL`),
+    # so we try multiple identifiers to find it.
+    default_like_slugs = {"default", "grocery"}
+
+    if not division_slug or division_slug in default_like_slugs:
+        d = (
+            db.query(Division)
+            .filter(
+                Division.is_active == True,
+                or_(Division.slug.in_(list(default_like_slugs)), Division.name == "Grocery"),
+            )
+            .first()
+        )
+        # If there is no exact name match, try a looser fallback.
+        if not d:
+            d = (
+                db.query(Division)
+                .filter(Division.is_active == True, Division.name.ilike("%grocery%"))
+                .first()
+            )
+        return str(d.id) if d else None
+
+    # For non-default division slugs, resolve by slug.
     d = (
         db.query(Division)
         .filter(Division.slug == division_slug, Division.is_active == True)
@@ -75,8 +97,13 @@ def get_products(
         if division_id is not None:
             query = query.filter(Product.division_id == division_id)
         else:
-            # If an unknown slug is passed, fall back to legacy "default" behavior.
-            query = query.filter(Product.division_id == None)
+            # Unknown division_slug: fall back to resolved default grocery division.
+            fallback_default_division_id = _resolve_division_id(db, "default")
+            if fallback_default_division_id:
+                query = query.filter(Product.division_id == fallback_default_division_id)
+            else:
+                # Legacy behavior (in case default was never seeded).
+                query = query.filter(Product.division_id == None)
 
     # Apply filters (convert UUIDs to strings for database queries)
     if category:
