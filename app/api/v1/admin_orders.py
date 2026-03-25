@@ -455,9 +455,10 @@ async def update_order_status(
         )
         db.add(status_history)
         db.commit()
-    except (ValueError, AttributeError) as e:
-        # If UUID conversion fails, log but don't fail
-        # This can happen if order_id format doesn't match UUID
+    except Exception as e:
+        # Keep status update successful even if history logging fails.
+        # Important: rollback failed transaction so subsequent DB calls don't crash.
+        db.rollback()
         print(f"Warning: Could not create status history entry: {e}")
     
     # Log activity
@@ -466,19 +467,23 @@ async def update_order_status(
     except (ValueError, AttributeError):
         entity_uuid = order_id_str
     
-    log_admin_activity(
-        db=db,
-        admin_id=admin.id,
-        action="order_status_updated",
-        entity_type="order",
-        entity_id=entity_uuid,
-        details={
-            "old_status": old_status.value,
-            "new_status": new_status,
-            "notes": status_data.notes
-        },
-        request=request
-    )
+    try:
+        log_admin_activity(
+            db=db,
+            admin_id=admin.id,
+            action="order_status_updated",
+            entity_type="order",
+            entity_id=entity_uuid,
+            details={
+                "old_status": old_status.value,
+                "new_status": new_status,
+                "notes": status_data.notes
+            },
+            request=request
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"Warning: Could not log admin activity: {e}")
     
     # Refresh order to get updated status history
     db.refresh(order)
