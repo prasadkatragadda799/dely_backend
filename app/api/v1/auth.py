@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, model_validator
@@ -304,7 +306,7 @@ class VerifyOtpRequest(BaseModel):
     phone: str
     # Client may send either `requestId` (camelCase) or `request_id` (snake_case).
     # Normalize both into `request_id` before validation.
-    request_id: str | None = None
+    request_id: Optional[str] = None
     otp: str
 
     @model_validator(mode="before")
