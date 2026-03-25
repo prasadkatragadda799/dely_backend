@@ -12,6 +12,7 @@ from app.api.deps import get_current_user
 from datetime import timedelta
 from app.config import settings
 import secrets
+import requests
 
 
 class RefreshTokenRequest(BaseModel):
@@ -208,5 +209,144 @@ def logout(current_user: User = Depends(get_current_user)):
     return ResponseModel(
         success=True,
         message="Logged out successfully"
+    )
+
+
+class SendOtpRequest(BaseModel):
+    phone: str
+
+
+class SendOtpResponse(BaseModel):
+    request_id: str
+
+
+@router.post("/send-otp", response_model=ResponseModel)
+def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
+    """
+    Send OTP via 2Factor to the given mobile number.
+    Returns a request_id (session id) used to verify OTP.
+    """
+    phone = (payload.phone or "").strip()
+    if not phone:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone is required")
+
+    if not settings.TWO_FACTOR_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="TWO_FACTOR_API_KEY is not configured",
+        )
+
+    # Keep it simple: allow digits only (client should send normalized number).
+    normalized = "".join(ch for ch in phone if ch.isdigit())
+    if len(normalized) < 10:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+    try:
+        resp = requests.get(url, timeout=10)
+        data = resp.json() if resp.content else {}
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to send OTP",
+        )
+
+    if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to send OTP",
+        )
+
+    request_id = str(data["Details"])
+    return ResponseModel(
+        success=True,
+        data={"request_id": request_id},
+        message="OTP sent",
+    )
+
+
+class VerifyOtpRequest(BaseModel):
+    phone: str
+    requestId: str
+    otp: str
+
+
+@router.post("/verify-otp", response_model=ResponseModel)
+def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
+    """
+    Verify OTP via 2Factor, then issue JWT tokens for the user matching the phone.
+    """
+    phone = (payload.phone or "").strip()
+    request_id = (payload.requestId or "").strip()
+    otp = (payload.otp or "").strip()
+
+    if not phone or not request_id or not otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phone, requestId, and otp are required",
+        )
+
+    if not settings.TWO_FACTOR_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="TWO_FACTOR_API_KEY is not configured",
+        )
+
+    normalized = "".join(ch for ch in phone if ch.isdigit())
+    if len(normalized) < 10:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+    verify_url = (
+        f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/VERIFY/{request_id}/{otp}"
+    )
+    try:
+        resp = requests.get(verify_url, timeout=10)
+        data = resp.json() if resp.content else {}
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify OTP",
+        )
+
+    if (data or {}).get("Status") != "Success":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
+
+    # OTP verified: login user by phone
+    user = db.query(User).filter(User.phone == normalized).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please register first.",
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive",
+        )
+
+    tokens = create_tokens(user)
+
+    kyc_status = user.kyc_status.value if hasattr(user.kyc_status, "value") else str(user.kyc_status)
+    is_kyc_verified = kyc_status == "verified"
+    user_data_response = {
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "business_name": user.business_name,
+        "kyc_status": kyc_status,
+        "kycStatus": kyc_status,
+        "is_kyc_verified": is_kyc_verified,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+    return ResponseModel(
+        success=True,
+        data={
+            "user": user_data_response,
+            "token": tokens["token"],
+            "refresh_token": tokens["refresh_token"],
+        },
+        message="OTP verified",
     )
 
