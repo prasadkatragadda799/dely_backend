@@ -4,6 +4,7 @@ For delivery personnel to view and manage assigned orders
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from typing import List, Optional
 from app.database import get_db
 from app.schemas.common import ResponseModel
@@ -181,37 +182,57 @@ async def update_delivery_status(
             detail="Order not found or not assigned to you"
         )
     
-    # Map delivery status to order status
+    requested_status = (status_update.status or "").strip().lower()
+
+    # Map delivery-app statuses to order status enum
     status_mapping = {
         "picked_up": OrderStatus.SHIPPED,
+        "shipped": OrderStatus.SHIPPED,
         "in_transit": OrderStatus.OUT_FOR_DELIVERY,
+        "out_for_delivery": OrderStatus.OUT_FOR_DELIVERY,
         "arrived": OrderStatus.OUT_FOR_DELIVERY,
-        "delivered": OrderStatus.DELIVERED
+        "delivered": OrderStatus.DELIVERED,
     }
-    
-    if status_update.status not in status_mapping:
+
+    if requested_status not in status_mapping:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid status: {status_update.status}"
         )
-    
+
     # Update order status
-    order.status = status_mapping[status_update.status]
+    order.status = status_mapping[requested_status]
     
     # Add notes if provided
     if status_update.notes:
         current_notes = order.notes or ""
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        order.notes = f"{current_notes}\n[{timestamp}] {status_update.status}: {status_update.notes}".strip()
-    
-    db.commit()
+        order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
+
+    try:
+        db.commit()
+        db.refresh(order)
+    except (StatementError, DataError, IntegrityError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to update order status: {str(exc)}",
+        )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update order status due to server error: {str(exc)}",
+        )
 
     # Notify order owner about delivery status
+    status_value = order.status.value if isinstance(order.status, OrderStatus) else str(order.status)
+
     if order.user_id:
         from app.utils.notification_helper import create_notification
-        _type = "delivery" if order.status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED) else "order"
-        _title = f"Order #{order.order_number} {order.status.value.replace('_', ' ')}"
-        _msg = f"Your order has been updated to: {order.status.value.replace('_', ' ')}."
+        _type = "delivery" if status_value in ("out_for_delivery", "delivered") else "order"
+        _title = f"Order #{order.order_number} {status_value.replace('_', ' ')}"
+        _msg = f"Your order has been updated to: {status_value.replace('_', ' ')}."
         try:
             create_notification(
                 db=db,
@@ -219,13 +240,13 @@ async def update_delivery_status(
                 type=_type,
                 title=_title,
                 message=_msg,
-                data={"order_id": str(order.id), "order_number": order.order_number, "status": order.status.value},
+                data={"order_id": str(order.id), "order_number": order.order_number, "status": status_value},
             )
         except Exception:
             pass
 
     # Update delivery person location if provided
-    if status_update.latitude and status_update.longitude:
+    if status_update.latitude is not None and status_update.longitude is not None:
         delivery_person.current_latitude = status_update.latitude
         delivery_person.current_longitude = status_update.longitude
         delivery_person.last_location_update = datetime.utcnow()
@@ -235,10 +256,10 @@ async def update_delivery_status(
         success=True,
         data={
             "orderId": order.id,
-            "status": order.status.value,
+            "status": status_value,
             "updatedAt": datetime.utcnow().isoformat()
         },
-        message=f"Order status updated to {status_update.status}"
+        message=f"Order status updated to {requested_status}"
     )
 
 
