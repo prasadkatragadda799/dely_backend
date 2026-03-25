@@ -276,11 +276,11 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
     """
     Verify OTP via 2Factor, then issue JWT tokens for the user matching the phone.
     """
-    phone = (payload.phone or "").strip()
+    phone_raw = (payload.phone or "").strip()
     request_id = (payload.requestId or "").strip()
     otp = (payload.otp or "").strip()
 
-    if not phone or not request_id or not otp:
+    if not phone_raw or not request_id or not otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Phone, requestId, and otp are required",
@@ -292,7 +292,7 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
             detail="TWO_FACTOR_API_KEY is not configured",
         )
 
-    normalized = "".join(ch for ch in phone if ch.isdigit())
+    normalized = "".join(ch for ch in phone_raw if ch.isdigit())
     if len(normalized) < 10:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
@@ -312,7 +312,8 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
 
     # OTP verified: login user by phone
-    user = db.query(User).filter(User.phone == normalized).first()
+    # Phones in DB may include '+'/'spaces; try both raw and normalized.
+    user = db.query(User).filter(User.phone.in_([phone_raw, normalized])).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
