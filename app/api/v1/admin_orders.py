@@ -29,7 +29,7 @@ router = APIRouter()
 @router.get("", response_model=ResponseModel)
 async def list_orders(
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=10000),  # Increased max limit for admin bulk operations
     status: Optional[str] = None,
     paymentMethod: Optional[str] = Query(None, alias="paymentMethod"),
     payment_method: Optional[str] = None,  # Alternative

@@ -29,6 +29,8 @@ class ProductService:
         category: Optional[UUID] = None,
         company: Optional[UUID] = None,
         brand: Optional[UUID] = None,
+        created_by: Optional[UUID] = None,
+        listing_scope: Optional[str] = None,
         status: Optional[str] = None,
         stock_status: Optional[str] = None,
         expiry_within_months: Optional[int] = None,
@@ -44,6 +46,8 @@ class ProductService:
             category_id=category,
             company_id=company,
             brand_id=brand,
+            created_by_admin_id=created_by,
+            listing_scope=listing_scope,
             status=status,
             stock_status=stock_status,
             expiry_within_months=expiry_within_months,
@@ -56,6 +60,7 @@ class ProductService:
             joinedload(Product.brand_rel),
             joinedload(Product.company),
             joinedload(Product.category),
+            joinedload(Product.creator),
         )
         total = query.count()
         offset = (page - 1) * limit

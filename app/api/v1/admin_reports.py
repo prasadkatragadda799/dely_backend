@@ -162,9 +162,9 @@ async def export_weekly_user_location_report(
         # Convert to list and sort by city
         locations = sorted(location_data.values(), key=lambda x: (x["state"], x["city"]))
         
-        # Create CSV in memory
+        # Create CSV in memory (UTF-8 BOM + CRLF for Excel; single header row)
         output = io.StringIO()
-        writer = csv.writer(output)
+        writer = csv.writer(output, lineterminator='\r\n')
         
         # Write header
         writer.writerow(["City", "State", "Active Users", "Inactive Users", "Total Users"])
@@ -193,20 +193,18 @@ async def export_weekly_user_location_report(
         writer.writerow([])
         writer.writerow(["TOTAL", "", total_active, total_inactive, total_active + total_inactive])
         
-        # Get CSV content
         output.seek(0)
-        csv_content = output.getvalue()
-        
-        # Create filename with date range
+        csv_body = output.getvalue()
+        csv_bytes = '\ufeff'.encode('utf-8') + csv_body.encode('utf-8')
+
         filename = f"user_location_report_{startDate}_to_{endDate}.csv"
-        
-        # Return as downloadable file
+
         return StreamingResponse(
-            io.BytesIO(csv_content.encode('utf-8')),
-            media_type="text/csv",
+            io.BytesIO(csv_bytes),
+            media_type="text/csv; charset=utf-8",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}"
-            }
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
         )
         
     except ValueError as e:

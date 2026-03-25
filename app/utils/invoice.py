@@ -31,7 +31,13 @@ def get_seller_info() -> Dict[str, Any]:
         "fssai": settings.SELLER_FSSAI if hasattr(settings, 'SELLER_FSSAI') else "10019043002791",
         "fssai_link": settings.SELLER_FSSAI_LINK if hasattr(settings, 'SELLER_FSSAI_LINK') else "https://foscos.fssai.gov.in/",
         "phone": settings.SELLER_PHONE if hasattr(settings, 'SELLER_PHONE') else "+91 XXXXX XXXXX",
-        "email": settings.SELLER_EMAIL if hasattr(settings, 'SELLER_EMAIL') else "company@example.com"
+        "email": settings.SELLER_EMAIL if hasattr(settings, 'SELLER_EMAIL') else "company@example.com",
+        "logo_url": (
+            (settings.SELLER_LOGO_URL or "").strip()
+            if hasattr(settings, "SELLER_LOGO_URL")
+            else ""
+        )
+        or None,
     }
 
 

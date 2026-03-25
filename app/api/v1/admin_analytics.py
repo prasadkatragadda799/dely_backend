@@ -729,14 +729,18 @@ async def export_analytics_report(
         
         # For now, implement CSV export (XLSX requires openpyxl library)
         if format == 'csv':
-            # Create CSV in memory
+            # Single rectangular schema so Excel/Sheets align columns; numeric amounts without
+            # currency symbols so cells parse as numbers. UTF-8 BOM helps Excel detect encoding.
             output = io.StringIO()
-            writer = csv.writer(output)
-            
-            # Dashboard metrics section
-            writer.writerow(['DASHBOARD METRICS'])
-            writer.writerow(['Metric', 'Value'])
-            
+            writer = csv.writer(output, lineterminator='\r\n')
+            writer.writerow(
+                ['Section', 'Item', 'Quantity', 'Amount (INR)']
+            )
+            range_label = (
+                f"{start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')}"
+            )
+            writer.writerow(['Report', range_label, '', ''])
+
             total_revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
                 and_(
                     Order.created_at >= start_dt,
@@ -744,33 +748,48 @@ async def export_analytics_report(
                     Order.status != OrderStatus.CANCELLED
                 )
             ).scalar() or 0.0
-            
+
             total_orders = db.query(func.count(Order.id)).filter(
                 and_(
                     Order.created_at >= start_dt,
                     Order.created_at <= end_dt
                 )
             ).scalar() or 0
-            
+
             active_users = db.query(func.count(User.id)).filter(
                 and_(
                     User.last_active_at >= get_active_users_threshold(),
                     User.is_active == True
                 )
             ).scalar() or 0
-            
+
             avg_order_value = float(total_revenue / total_orders) if total_orders > 0 else 0.0
-            
-            writer.writerow(['Total Revenue', f'₹{round(float(total_revenue), 2)}'])
-            writer.writerow(['Total Orders', total_orders])
-            writer.writerow(['Active Users', active_users])
-            writer.writerow(['Average Order Value', f'₹{round(avg_order_value, 2)}'])
-            writer.writerow([])
-            
-            # Top products section
-            writer.writerow(['TOP PRODUCTS'])
-            writer.writerow(['Product Name', 'Sales', 'Revenue'])
-            
+
+            writer.writerow([
+                'Dashboard metrics',
+                'Total revenue',
+                '',
+                f'{float(total_revenue):.2f}',
+            ])
+            writer.writerow([
+                'Dashboard metrics',
+                'Total orders',
+                str(int(total_orders)),
+                '',
+            ])
+            writer.writerow([
+                'Dashboard metrics',
+                'Active users',
+                str(int(active_users)),
+                '',
+            ])
+            writer.writerow([
+                'Dashboard metrics',
+                'Average order value',
+                '',
+                f'{avg_order_value:.2f}',
+            ])
+
             product_analytics = db.query(
                 Product.name,
                 func.sum(OrderItem.quantity).label('sales'),
@@ -788,16 +807,15 @@ async def export_analytics_report(
             ).group_by(Product.name).order_by(
                 func.sum(OrderItem.quantity * OrderItem.price).desc()
             ).limit(10).all()
-            
+
             for row in product_analytics:
-                writer.writerow([row.name, int(row.sales or 0), f'₹{round(float(row.revenue or 0), 2)}'])
-            
-            writer.writerow([])
-            
-            # Order status distribution
-            writer.writerow(['ORDER STATUS DISTRIBUTION'])
-            writer.writerow(['Status', 'Count'])
-            
+                writer.writerow([
+                    'Top products',
+                    row.name or '',
+                    str(int(row.sales or 0)),
+                    f'{float(row.revenue or 0):.2f}',
+                ])
+
             status_data = db.query(
                 Order.status,
                 func.count(Order.id).label('count')
@@ -807,25 +825,28 @@ async def export_analytics_report(
                     Order.created_at <= end_dt
                 )
             ).group_by(Order.status).all()
-            
+
             for row in status_data:
                 status_name = row.status.value.capitalize() if hasattr(row.status, 'value') else str(row.status).capitalize()
-                writer.writerow([status_name, int(row.count)])
-            
-            # Get CSV content
+                writer.writerow([
+                    'Order status distribution',
+                    status_name,
+                    str(int(row.count)),
+                    '',
+                ])
+
             output.seek(0)
-            csv_content = output.getvalue()
-            
-            # Create filename
+            csv_body = output.getvalue()
+            csv_bytes = '\ufeff'.encode('utf-8') + csv_body.encode('utf-8')
+
             filename = f"analytics-report-{start_dt.strftime('%Y-%m-%d')}-to-{end_dt.strftime('%Y-%m-%d')}.csv"
-            
-            # Return as downloadable file
+
             return StreamingResponse(
-                io.BytesIO(csv_content.encode('utf-8')),
-                media_type="text/csv",
+                io.BytesIO(csv_bytes),
+                media_type="text/csv; charset=utf-8",
                 headers={
-                    "Content-Disposition": f"attachment; filename={filename}"
-                }
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                },
             )
         else:
             # XLSX format requires openpyxl library

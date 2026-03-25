@@ -5,8 +5,10 @@ from datetime import date, timedelta
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import and_, cast, exists, or_, select, String
 from sqlalchemy.orm import Session, joinedload, Query
 
+from app.models.admin import Admin, AdminRole
 from app.models.product import Product
 from app.repositories.base import BaseRepository
 from app.core.constants import ExpiryFilter
@@ -54,6 +56,8 @@ class ProductRepository(BaseRepository[Product]):
         category_id: Optional[UUID] = None,
         company_id: Optional[UUID] = None,
         brand_id: Optional[UUID] = None,
+        created_by_admin_id: Optional[UUID] = None,
+        listing_scope: Optional[str] = None,
         status: Optional[str] = None,
         stock_status: Optional[str] = None,
         expiry_within_months: Optional[int] = None,
@@ -63,8 +67,34 @@ class ProductRepository(BaseRepository[Product]):
         """
         Build filtered and ordered query for admin product list.
         Caller can use .count(), .offset().limit().all(), and .options(joinedload(...)).
+
+        listing_scope:
+          - "seller": only products created by an admin with role seller
+          - "platform": products not created by a seller (includes legacy rows with no creator)
         """
         q = self.db.query(Product)
+
+        if created_by_admin_id is not None:
+            q = q.filter(Product.created_by == str(created_by_admin_id))
+
+        if listing_scope == "seller":
+            q = q.join(
+                Admin,
+                and_(
+                    cast(Admin.id, String) == Product.created_by,
+                    Admin.role == AdminRole.SELLER,
+                ),
+            )
+        elif listing_scope == "platform":
+            seller_creator = exists(
+                select(1).select_from(Admin).where(
+                    and_(
+                        cast(Admin.id, String) == Product.created_by,
+                        Admin.role == AdminRole.SELLER,
+                    )
+                )
+            )
+            q = q.filter(~seller_creator)
 
         if search:
             q = q.filter(

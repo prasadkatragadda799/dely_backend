@@ -50,10 +50,19 @@ async def list_products(
     expiry_within_months: Optional[int] = Query(None, ge=1, le=24),
     sort: Optional[str] = Query("created_at", pattern="^(name|price|stock|created_at)$"),
     order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
+    created_by: Optional[UUID] = Query(
+        None,
+        description="Filter to products created by this admin user (e.g. a seller's id).",
+    ),
+    listing_scope: Optional[str] = Query(
+        None,
+        pattern="^(seller|platform)$",
+        description="seller: only marketplace seller listings; platform: not created by a seller.",
+    ),
     admin: Admin = Depends(require_manager_or_above),
     product_service: ProductService = Depends(get_product_service),
 ):
-    """List all products with filters and pagination"""
+    """List all products with filters and pagination (includes seller-created products)."""
     products, total = product_service.list_products_for_admin(
         page=page,
         limit=limit,
@@ -61,6 +70,8 @@ async def list_products(
         category=category,
         company=company,
         brand=brand,
+        created_by=created_by,
+        listing_scope=listing_scope,
         status=status,
         stock_status=stock_status,
         expiry_within_months=expiry_within_months,
@@ -121,6 +132,19 @@ async def list_products(
             product_data["company"] = {"id": p.company.id, "name": p.company.name}
         if p.category:
             product_data["category"] = {"id": p.category.id, "name": p.category.name, "slug": p.category.slug}
+
+        creator = getattr(p, "creator", None)
+        if creator is not None:
+            product_data["createdBy"] = str(creator.id)
+            product_data["creator"] = {
+                "id": str(creator.id),
+                "name": creator.name,
+                "email": creator.email,
+                "role": creator.role.value if getattr(creator, "role", None) else None,
+            }
+        else:
+            product_data["createdBy"] = None
+            product_data["creator"] = None
         
         product_list.append(product_data)
     

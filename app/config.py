@@ -89,7 +89,9 @@ class Settings(BaseSettings):
     SELLER_FSSAI_LINK: str = os.getenv("SELLER_FSSAI_LINK", "https://foscos.fssai.gov.in/")
     SELLER_PHONE: str = os.getenv("SELLER_PHONE", "+91 XXXXX XXXXX")
     SELLER_EMAIL: str = os.getenv("SELLER_EMAIL", "company@example.com")
-    
+    # Optional absolute URL for invoice / admin (e.g. CDN or public uploads path)
+    SELLER_LOGO_URL: str = os.getenv("SELLER_LOGO_URL", "")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,

@@ -214,21 +214,33 @@ def cancel_order(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Cancel an order"""
+    """
+    Customer-initiated cancel.
+    Allowed only before the order is shipped; restores product stock.
+    """
+    order_id_str = str(order_id)
     order = db.query(Order).filter(
-        Order.id == str(order_id),
+        Order.id == order_id_str,
         Order.user_id == str(current_user.id)
     ).first()
-    
+
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    if order.status in [OrderStatus.DELIVERED, OrderStatus.CANCELLED]:
+
+    if order.status in (OrderStatus.CANCELLED, OrderStatus.CANCELED):
+        raise HTTPException(status_code=400, detail="Order is already cancelled")
+
+    if order.status in (
+        OrderStatus.DELIVERED,
+        OrderStatus.COMPLETED,
+        OrderStatus.SHIPPED,
+        OrderStatus.OUT_FOR_DELIVERY,
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot cancel order with status {order.status}"
+            detail="This order can no longer be cancelled. Contact support if you need help.",
         )
-    
+
     # Restore stock
     order_items = db.query(OrderItem).filter(OrderItem.order_id == str(order.id)).all()
     for item in order_items:
@@ -236,12 +248,50 @@ def cancel_order(
         if product:
             if product.stock_quantity:
                 product.stock_quantity += item.quantity
-            elif hasattr(product, 'stock') and product.stock:
+            elif hasattr(product, "stock") and product.stock:
                 product.stock += item.quantity
-    
+
     order.status = OrderStatus.CANCELLED
+    order.cancelled_at = datetime.utcnow()
+    order.cancelled_reason = cancel_data.reason
     db.commit()
-    
+
+    # Optional status history (changed_by=None for customer action)
+    from uuid import UUID as UUIDType
+    from app.models.order_status_history import OrderStatusHistory
+
+    try:
+        order_uuid = UUIDType(order_id_str)
+        status_history = OrderStatusHistory(
+            order_id=order_uuid,
+            status=OrderStatus.CANCELLED,
+            changed_by=None,
+            notes=cancel_data.reason or "Cancelled by customer",
+        )
+        db.add(status_history)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    if order.user_id:
+        try:
+            from app.utils.notification_helper import create_notification
+
+            create_notification(
+                db=db,
+                user_id=order.user_id,
+                type="order",
+                title=f"Order #{order.order_number} cancelled",
+                message="Your order has been cancelled.",
+                data={
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "status": "cancelled",
+                },
+            )
+        except Exception:
+            db.rollback()
+
     return ResponseModel(success=True, message="Order cancelled successfully")
 
 

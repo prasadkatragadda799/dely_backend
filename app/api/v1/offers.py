@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.offer import OfferResponse
@@ -13,7 +13,6 @@ router = APIRouter()
 @router.get("", response_model=ResponseModel)
 def get_offers(
     type_filter: Optional[str] = None,
-    active: Optional[bool] = True,
     db: Session = Depends(get_db)
 ):
     """Get all active offers (Mobile App API)"""
@@ -53,7 +52,8 @@ def get_offers(
         elif offer.type == OfferType.TEXT:
             text_offers.append(offer_data)
         elif offer.type == OfferType.COMPANY:
-            if offer.company:
+            # `company` relationship may not exist until company_id migration is applied.
+            if hasattr(offer, "company") and offer.company:
                 offer_data["company"] = {
                     "id": offer.company.id,
                     "name": offer.company.name
