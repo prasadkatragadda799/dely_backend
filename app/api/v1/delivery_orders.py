@@ -18,6 +18,19 @@ from datetime import datetime
 router = APIRouter()
 
 
+def _supports_out_for_delivery(db: Session) -> bool:
+    """Check if DB enum includes OUT_FOR_DELIVERY literal."""
+    try:
+        rows = db.execute(
+            text("SELECT unnest(enum_range(NULL::orderstatus))::text")
+        ).fetchall()
+        allowed = {str(row[0]).upper() for row in rows}
+        return "OUT_FOR_DELIVERY" in allowed
+    except Exception:
+        # If enum introspection fails, use conservative fallback.
+        return False
+
+
 @router.get("/assigned", response_model=ResponseModel)
 async def get_assigned_orders(
     status: Optional[str] = None,
@@ -39,7 +52,10 @@ async def get_assigned_orders(
         elif status == "picked_up":
             query = query.filter(Order.status == OrderStatus.SHIPPED)
         elif status == "in_transit":
-            query = query.filter(Order.status == OrderStatus.OUT_FOR_DELIVERY)
+            if _supports_out_for_delivery(db):
+                query = query.filter(Order.status == OrderStatus.OUT_FOR_DELIVERY)
+            else:
+                query = query.filter(Order.status == OrderStatus.SHIPPED)
         elif status == "delivered":
             query = query.filter(Order.status == OrderStatus.DELIVERED)
     
@@ -185,14 +201,16 @@ async def update_delivery_status(
     
     requested_status = (status_update.status or "").strip().lower()
 
-    # Map delivery-app statuses to order status enum
+    supports_out_for_delivery = _supports_out_for_delivery(db)
+
+    # Map delivery-app statuses to DB enum literals
     status_mapping = {
-        "picked_up": OrderStatus.SHIPPED,
-        "shipped": OrderStatus.SHIPPED,
-        "in_transit": OrderStatus.OUT_FOR_DELIVERY,
-        "out_for_delivery": OrderStatus.OUT_FOR_DELIVERY,
-        "arrived": OrderStatus.OUT_FOR_DELIVERY,
-        "delivered": OrderStatus.DELIVERED,
+        "picked_up": "SHIPPED",
+        "shipped": "SHIPPED",
+        "in_transit": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+        "out_for_delivery": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+        "arrived": "OUT_FOR_DELIVERY" if supports_out_for_delivery else "SHIPPED",
+        "delivered": "DELIVERED",
     }
 
     if requested_status not in status_mapping:
@@ -201,9 +219,8 @@ async def update_delivery_status(
             detail=f"Invalid status: {status_update.status}"
         )
 
-    # Persist lowercase DB enum literal explicitly to match Postgres enum values.
-    target_status = status_mapping[requested_status]
-    db_status_value = target_status.value
+    # Persist DB enum literal explicitly (matches live DB enum labels).
+    db_status_value = status_mapping[requested_status]
     
     # Add notes if provided
     if status_update.notes:
@@ -245,7 +262,7 @@ async def update_delivery_status(
 
     if order.user_id:
         from app.utils.notification_helper import create_notification
-        _type = "delivery" if status_value in ("out_for_delivery", "delivered") else "order"
+        _type = "delivery" if status_value.lower() in ("out_for_delivery", "delivered", "shipped") else "order"
         _title = f"Order #{order.order_number} {status_value.replace('_', ' ')}"
         _msg = f"Your order has been updated to: {status_value.replace('_', ' ')}."
         try:
