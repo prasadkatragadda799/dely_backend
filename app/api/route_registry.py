@@ -20,6 +20,7 @@ from app.api.v1 import (
     notifications,
     kyc,
     delivery,
+    maps,
     payments,
     stats,
 )
@@ -69,6 +70,7 @@ def register_routes(app: FastAPI) -> None:
         (notifications.router, "/api/v1/notifications", ["Notifications"]),
         (kyc.router, "/api/v1/kyc", ["KYC"]),
         (delivery.router, "/api/v1/delivery", ["Delivery"]),
+        (maps.router, "/api/v1/maps", ["Maps"]),
         (payments.router, "/api/v1/payments", ["Payments"]),
         (stats.router, "/api/v1/stats", ["Statistics"]),
     ]
