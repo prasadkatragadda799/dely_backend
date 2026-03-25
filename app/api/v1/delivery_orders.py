@@ -200,8 +200,9 @@ async def update_delivery_status(
             detail=f"Invalid status: {status_update.status}"
         )
 
-    # Update order status
-    order.status = status_mapping[requested_status]
+    # Persist enum value (lowercase) to match DB enum literals.
+    target_status = status_mapping[requested_status]
+    order.status = target_status.value
     
     # Add notes if provided
     if status_update.notes:
