@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from app.database import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, ChangePassword
 from app.schemas.common import ResponseModel
@@ -302,8 +302,18 @@ def send_otp_no_dash_alias(payload: SendOtpRequest, db: Session = Depends(get_db
 
 class VerifyOtpRequest(BaseModel):
     phone: str
-    requestId: str = Field(validation_alias="request_id")
+    # Client may send either `requestId` (camelCase) or `request_id` (snake_case).
+    # Normalize both into `request_id` before validation.
+    request_id: str | None = None
     otp: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_request_id_aliases(cls, data):
+        if isinstance(data, dict):
+            if "request_id" not in data and "requestId" in data:
+                data = {**data, "request_id": data.get("requestId")}
+        return data
 
 
 @router.post("/verify-otp", response_model=ResponseModel)
@@ -312,13 +322,13 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
     Verify OTP via 2Factor, then issue JWT tokens for the user matching the phone.
     """
     phone_raw = (payload.phone or "").strip()
-    request_id = (payload.requestId or "").strip()
+    request_id = (payload.request_id or "").strip()
     otp = (payload.otp or "").strip()
 
     if not phone_raw or not request_id or not otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone, requestId, and otp are required",
+            detail="Phone, request_id, and otp are required",
         )
 
     if not settings.TWO_FACTOR_API_KEY:
