@@ -3,6 +3,8 @@ Central route registration. Add new API/Admin/Delivery routes here.
 Keeps main.py clean and makes route discovery obvious.
 """
 from fastapi import FastAPI
+import logging
+import os
 
 from app.api.v1 import (
     auth,
@@ -45,6 +47,8 @@ from app.api.v1 import (
     delivery_dashboard,
     admin_delivery,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def register_routes(app: FastAPI) -> None:
@@ -108,3 +112,30 @@ def register_routes(app: FastAPI) -> None:
     ]
     for router, prefix, tags in delivery_routes:
         app.include_router(router, prefix=prefix, tags=tags)
+
+    # Startup sanity check (helps debug "404 Not Found" due to version/deployment mismatch).
+    # Enabled when DEBUG is on or when LOG_ROUTE_MATCHES=true is set.
+    log_matches = os.getenv("LOG_ROUTE_MATCHES", "").lower() == "true"
+    if log_matches:
+        target_paths = {
+            "/api/v1/auth/send-otp",
+            "/api/v1/auth/send_otp",
+            "/api/v1/auth/sendOtp",
+            "/api/v1/auth/sendotp",
+            "/api/v1/auth/verify-otp",
+        }
+        found = set()
+        for r in app.router.routes:
+            path = getattr(r, "path", None)
+            methods = getattr(r, "methods", None)
+            if isinstance(path, str) and path in target_paths and methods:
+                found.add(path)
+
+        missing = sorted(target_paths - found)
+        if missing:
+            logger.error(
+                "Route registration check FAILED. Missing OTP routes: %s",
+                ", ".join(missing),
+            )
+        else:
+            logger.info("Route registration check OK. OTP routes are present.")
