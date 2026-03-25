@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import String, cast
 from app.database import get_db
@@ -8,6 +8,7 @@ from app.schemas.common import ResponseModel
 from app.models.kyc import KYC, KYCStatus
 from app.models.user import User
 from app.utils.gst_verification import verify_gst_number
+from app.api.v1.admin_upload import save_uploaded_file
 
 router = APIRouter()
 
@@ -67,6 +68,31 @@ def verify_gst(gst_data: GSTVerify, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Error verifying GST number: {str(e)}"
         )
+
+
+@router.post("/upload-image", response_model=ResponseModel)
+async def upload_kyc_image(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+):
+    """Upload KYC image and return a server-accessible URL."""
+    try:
+        image_url = save_uploaded_file(
+            file=file,
+            upload_type="kyc",
+            entity_id=current_user.id,
+            request=request,
+        )
+        return ResponseModel(
+            success=True,
+            data={"url": image_url},
+            message="KYC image uploaded successfully",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading KYC image: {str(e)}")
 
 
 @router.post("/submit", response_model=ResponseModel, status_code=201)
