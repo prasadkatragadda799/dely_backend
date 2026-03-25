@@ -4,6 +4,7 @@ Separate router for dashboard summary at /delivery/dashboard-summary
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
 from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.models.order import Order, OrderStatus
@@ -12,6 +13,18 @@ from app.api.v1.delivery_auth import get_current_delivery_person
 from datetime import datetime, timedelta
 
 router = APIRouter()
+
+
+def _supports_out_for_delivery(db: Session) -> bool:
+    """Check whether DB enum orderstatus contains OUT_FOR_DELIVERY."""
+    try:
+        rows = db.execute(
+            text("SELECT unnest(enum_range(NULL::orderstatus))::text")
+        ).fetchall()
+        allowed = {str(row[0]).upper() for row in rows}
+        return "OUT_FOR_DELIVERY" in allowed
+    except Exception:
+        return False
 
 
 @router.get("/dashboard-summary", response_model=ResponseModel)
@@ -28,6 +41,8 @@ async def get_dashboard_summary(
     yesterday_start = today_start - timedelta(days=1)
     yesterday_end = today_start
     
+    supports_out_for_delivery = _supports_out_for_delivery(db)
+
     # Get today's delivered orders
     today_delivered = db.query(Order).filter(
         Order.delivery_person_id == delivery_person.id,
@@ -62,17 +77,21 @@ async def get_dashboard_summary(
     elif today_earnings > 0:
         earnings_change_percent = 100.0  # 100% increase if no earnings yesterday
     
-    # Get active order (SHIPPED or OUT_FOR_DELIVERY)
+    # Get active order (SHIPPED and OUT_FOR_DELIVERY only when DB supports it)
+    active_statuses = [OrderStatus.SHIPPED]
+    if supports_out_for_delivery:
+        active_statuses.append(OrderStatus.OUT_FOR_DELIVERY)
+
     active_order = db.query(Order).options(
-        joinedload(Order.order_items).joinedload("product")
+        joinedload(Order.order_items)
     ).filter(
         Order.delivery_person_id == delivery_person.id,
-        Order.status.in_([OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY])
+        Order.status.in_(active_statuses)
     ).order_by(Order.created_at.desc()).first()
     
     # Get upcoming orders (CONFIRMED, PROCESSING - assigned but not yet picked up)
     upcoming_orders = db.query(Order).options(
-        joinedload(Order.order_items).joinedload("product")
+        joinedload(Order.order_items)
     ).filter(
         Order.delivery_person_id == delivery_person.id,
         Order.status.in_([OrderStatus.CONFIRMED, OrderStatus.PROCESSING])
@@ -104,7 +123,8 @@ async def get_dashboard_summary(
         # Calculate ETA/distance placeholders
         eta_minutes = None
         distance_km = None
-        if order.status in [OrderStatus.SHIPPED, OrderStatus.OUT_FOR_DELIVERY]:
+        status_value = order.status.value if isinstance(order.status, OrderStatus) else str(order.status)
+        if status_value in ("shipped", "out_for_delivery", "SHIPPED", "OUT_FOR_DELIVERY"):
             eta_minutes = 20  # Estimate
             distance_km = 3.5
         
@@ -112,7 +132,7 @@ async def get_dashboard_summary(
             "id": order.id,
             "orderNumber": order.order_number,
             "order_number": order.order_number,
-            "status": order.status.value,
+            "status": status_value.lower(),
             "storeName": store_name,
             "store_name": store_name,
             "restaurantName": store_name,
