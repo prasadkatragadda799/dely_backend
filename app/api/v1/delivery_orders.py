@@ -5,6 +5,7 @@ For delivery personnel to view and manage assigned orders
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError, IntegrityError, StatementError
+from sqlalchemy import text
 from typing import List, Optional
 from app.database import get_db
 from app.schemas.common import ResponseModel
@@ -211,12 +212,18 @@ async def update_delivery_status(
         order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
 
     try:
-        db.query(Order).filter(Order.id == order.id).update(
+        # Bypass SQLAlchemy Enum name coercion and cast directly to DB enum literal.
+        db.execute(
+            text(
+                "UPDATE orders "
+                "SET status = CAST(:status AS orderstatus), updated_at = :updated_at "
+                "WHERE id = :order_id"
+            ),
             {
                 "status": db_status_value,
                 "updated_at": datetime.utcnow(),
+                "order_id": order.id,
             },
-            synchronize_session=False,
         )
         db.commit()
         db.refresh(order)
