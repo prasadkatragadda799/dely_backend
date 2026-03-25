@@ -111,6 +111,14 @@ def submit_kyc(
     gst_details = verify_gst_number(kyc_data.gst_number)
     if not gst_details:
         raise HTTPException(status_code=400, detail="Invalid GST number")
+
+    # Normalize optional image URLs.
+    # KYCSubmit.model_post_init currently defaults these to "" which would
+    # bypass `if kyc.shop_image_url` checks in admin, so we convert "" -> None.
+    shop_image_url = (kyc_data.shop_image_url or "").strip()
+    fssai_license_image_url = (kyc_data.fssai_license_image_url or "").strip()
+    shop_image_url = shop_image_url if shop_image_url else None
+    fssai_license_image_url = fssai_license_image_url if fssai_license_image_url else None
     
     if existing_kyc:
         # Update existing KYC
@@ -122,6 +130,8 @@ def submit_kyc(
             existing_kyc.pan_number = kyc_data.pan_number
         existing_kyc.business_type = kyc_data.business_type
         existing_kyc.address = kyc_data.address
+        existing_kyc.shop_image_url = shop_image_url
+        existing_kyc.fssai_license_image_url = fssai_license_image_url
         existing_kyc.documents = kyc_data.documents
         existing_kyc.status = KYCStatus.PENDING
         db.commit()
@@ -137,6 +147,8 @@ def submit_kyc(
             pan_number=kyc_data.pan_number or None,  # legacy (optional)
             business_type=kyc_data.business_type,
             address=kyc_data.address,
+            shop_image_url=shop_image_url,
+            fssai_license_image_url=fssai_license_image_url,
             documents=kyc_data.documents,
             status=KYCStatus.PENDING
         )
