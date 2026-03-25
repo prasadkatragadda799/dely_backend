@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from datetime import datetime
 from app.database import get_db
-from app.schemas.delivery import DeliveryLogin, DeliveryPersonResponse
+from app.schemas.delivery import DeliveryLogin, DeliverySelfUpdate
 from app.schemas.common import ResponseModel
 from app.models.delivery_person import DeliveryPerson
 from app.utils.security import verify_password, create_access_token, create_refresh_token, decode_token
@@ -156,4 +156,71 @@ async def get_delivery_person_info(
             "currentLongitude": delivery_person.current_longitude
         },
         message="Delivery person information retrieved successfully"
+    )
+
+
+@router.put("/me", response_model=ResponseModel)
+async def update_delivery_person_info(
+    payload: DeliverySelfUpdate,
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db)
+):
+    """Allow delivery person to update own basic profile fields."""
+    if payload.phone and payload.phone != delivery_person.phone:
+        existing_phone = db.query(DeliveryPerson).filter(
+            DeliveryPerson.phone == payload.phone,
+            DeliveryPerson.id != delivery_person.id
+        ).first()
+        if existing_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered"
+            )
+
+    if payload.email and payload.email != delivery_person.email:
+        existing_email = db.query(DeliveryPerson).filter(
+            DeliveryPerson.email == payload.email,
+            DeliveryPerson.id != delivery_person.id
+        ).first()
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+
+    if payload.name is not None:
+        delivery_person.name = payload.name.strip()
+    if payload.phone is not None:
+        delivery_person.phone = payload.phone.strip()
+    if payload.email is not None:
+        delivery_person.email = payload.email.strip().lower()
+    if payload.vehicleNumber is not None:
+        delivery_person.vehicle_number = payload.vehicleNumber.strip()
+    if payload.vehicleType is not None:
+        delivery_person.vehicle_type = payload.vehicleType.strip()
+
+    db.commit()
+    db.refresh(delivery_person)
+
+    return ResponseModel(
+        success=True,
+        data={
+            "id": delivery_person.id,
+            "name": delivery_person.name,
+            "phone": delivery_person.phone,
+            "email": delivery_person.email,
+            "employeeId": delivery_person.employee_id,
+            "employee_id": delivery_person.employee_id,
+            "vehicleNumber": delivery_person.vehicle_number,
+            "vehicle_number": delivery_person.vehicle_number,
+            "vehicleType": delivery_person.vehicle_type,
+            "vehicle_type": delivery_person.vehicle_type,
+            "isAvailable": delivery_person.is_available,
+            "is_available": delivery_person.is_available,
+            "isOnline": delivery_person.is_online,
+            "is_online": delivery_person.is_online,
+            "currentLatitude": delivery_person.current_latitude,
+            "currentLongitude": delivery_person.current_longitude
+        },
+        message="Profile updated successfully"
     )

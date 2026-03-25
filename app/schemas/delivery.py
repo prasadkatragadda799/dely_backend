@@ -32,6 +32,18 @@ class DeliveryPersonResponse(BaseModel):
         from_attributes = True
 
 
+class DeliverySelfUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, pattern=r'^\+?[0-9]{10,15}$')
+    vehicleNumber: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("vehicleNumber", "vehicle_number")
+    )
+    vehicleType: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("vehicleType", "vehicle_type")
+    )
+
+
 # Delivery Person Management (Admin)
 class DeliveryPersonCreate(BaseModel):
     name: str
