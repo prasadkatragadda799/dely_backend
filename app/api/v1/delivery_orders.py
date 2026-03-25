@@ -222,29 +222,29 @@ async def update_delivery_status(
         # Persist DB enum literal explicitly (matches live DB enum labels).
         db_status_value = status_mapping[requested_status]
 
-        # Add notes if provided
+        updated_notes = order.notes
         if status_update.notes:
             current_notes = order.notes or ""
             timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
+            updated_notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
 
         # Bypass SQLAlchemy Enum name coercion and cast directly to DB enum literal.
         db.execute(
             text(
                 "UPDATE orders "
-                "SET status = CAST(:status AS orderstatus), updated_at = :updated_at "
+                "SET status = CAST(:status AS orderstatus), notes = :notes, updated_at = :updated_at "
                 "WHERE id = :order_id"
             ),
             {
                 "status": db_status_value,
+                "notes": updated_notes,
                 "updated_at": datetime.utcnow(),
                 "order_id": order.id,
             },
         )
         db.commit()
-        db.refresh(order)
         # Notify order owner about delivery status
-        status_value = order.status.value if isinstance(order.status, OrderStatus) else str(order.status)
+        status_value = db_status_value.lower()
         if order.user_id:
             from app.utils.notification_helper import create_notification
             _type = "delivery" if status_value.lower() in ("out_for_delivery", "delivered", "shipped") else "order"
@@ -260,7 +260,7 @@ async def update_delivery_status(
                     data={"order_id": str(order.id), "order_number": order.order_number, "status": status_value},
                 )
             except Exception:
-                pass
+                db.rollback()
 
         # Update delivery person location if provided
         if status_update.latitude is not None and status_update.longitude is not None:
