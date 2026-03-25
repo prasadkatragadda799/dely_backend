@@ -200,9 +200,9 @@ async def update_delivery_status(
             detail=f"Invalid status: {status_update.status}"
         )
 
-    # Persist enum value (lowercase) to match DB enum literals.
+    # Persist lowercase DB enum literal explicitly to match Postgres enum values.
     target_status = status_mapping[requested_status]
-    order.status = target_status.value
+    db_status_value = target_status.value
     
     # Add notes if provided
     if status_update.notes:
@@ -211,6 +211,13 @@ async def update_delivery_status(
         order.notes = f"{current_notes}\n[{timestamp}] {requested_status}: {status_update.notes}".strip()
 
     try:
+        db.query(Order).filter(Order.id == order.id).update(
+            {
+                "status": db_status_value,
+                "updated_at": datetime.utcnow(),
+            },
+            synchronize_session=False,
+        )
         db.commit()
         db.refresh(order)
     except (StatementError, DataError, IntegrityError) as exc:
