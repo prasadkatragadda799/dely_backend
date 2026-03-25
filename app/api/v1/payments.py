@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.schemas.payment import PaymentInitiate, PaymentInitiateResponse, PaymentVerify, PaymentVerifyResponse
@@ -18,9 +19,12 @@ def initiate_payment(
     db: Session = Depends(get_db)
 ):
     """Initiate payment"""
+    user_id_str = str(current_user.id)
+    order_id_str = str(payment_data.order_id)
+
     order = db.query(Order).filter(
-        Order.id == payment_data.order_id,
-        Order.user_id == current_user.id
+        Order.id == order_id_str,
+        Order.user_id == user_id_str
     ).first()
     
     if not order:
@@ -57,7 +61,14 @@ def initiate_payment(
         "payment_method": payment_method_normalized,
         **payment_details
     }
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Failed to initiate payment: {str(exc)}")
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to initiate payment: {str(exc)}")
     
     return ResponseModel(
         success=True,
@@ -79,9 +90,11 @@ def verify_payment(
     # In production, verify with payment gateway
     # For now, mock verification
     
+    user_id_str = str(current_user.id)
+
     # Find order by payment_id in payment_details
     orders = db.query(Order).filter(
-        Order.user_id == current_user.id
+        Order.user_id == user_id_str
     ).all()
     
     order = None
@@ -99,7 +112,14 @@ def verify_payment(
     if payment_status == "success":
         from app.models.order import OrderStatus
         order.status = OrderStatus.CONFIRMED
-        db.commit()
+        try:
+            db.commit()
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Failed to verify payment: {str(exc)}")
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to verify payment: {str(exc)}")
     
     return ResponseModel(
         success=True,
