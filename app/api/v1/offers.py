@@ -1,9 +1,10 @@
 import logging
+import os
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy import cast, select, Text
 from sqlalchemy.orm import Session
-from app.config import settings
 from app.database import get_db
 from app.schemas.offer import OfferResponse
 from app.schemas.common import ResponseModel
@@ -15,11 +16,15 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _reraise_in_dev() -> bool:
-    """Re-raise only in local/dev so production never 500s this route from handled errors."""
-    if settings.ENVIRONMENT.lower() in ("production", "prod"):
-        return False
-    return bool(settings.DEBUG)
+def _reraise_from_offers_handler() -> bool:
+    """
+    Re-raise handled exceptions only when explicitly enabled.
+
+    Default is False: always degrade to empty offers + log. That avoids 500s when EC2
+    omits ENVIRONMENT=production (then DEBUG defaults True per app.config — see DEFAULT_DEBUG).
+    Set RERAISE_OFFERS_ERRORS=true when you want failures to bubble in local debugging.
+    """
+    return os.getenv("RERAISE_OFFERS_ERRORS", "").strip().lower() in ("1", "true", "yes")
 
 def _empty_offers_data() -> dict:
     return {"banners": [], "textOffers": [], "companyOffers": []}
@@ -126,17 +131,53 @@ def _fetch_active_offer_rows(
         return list(db.execute(stmt).all())
     except Exception:
         logger.exception("offers query failed")
-        if _reraise_in_dev():
+        if _reraise_from_offers_handler():
             raise
         return []
 
 
-@router.get("", response_model=ResponseModel)
+def _offers_json_body(
+    *,
+    banners: Optional[List[dict]] = None,
+    text_offers: Optional[List[dict]] = None,
+    company_offers: Optional[List[dict]] = None,
+) -> dict:
+    return {
+        "success": True,
+        "message": None,
+        "error": None,
+        "data": {
+            "banners": banners if banners is not None else [],
+            "textOffers": text_offers if text_offers is not None else [],
+            "companyOffers": company_offers if company_offers is not None else [],
+        },
+    }
+
+
+@router.get("/ping")
+def offers_ping():
+    """No database — confirms routing and same host as mobile/admin API."""
+    return {
+        "success": True,
+        "message": "Offers router OK (no DB access)",
+        "error": None,
+        "data": {
+            "diagnostics": {
+                "mobile_app": "GET /api/v1/offers — public; compare with this ping on same base URL",
+                "admin_panel": "GET /admin/offers — requires admin JWT",
+                "server_logs": "journalctl -u dely-backend -n 100 | grep -i offers",
+                "env_hint": "Set ENVIRONMENT=production and DEBUG=false on EC2; optional RERAISE_OFFERS_ERRORS=true only for local debugging",
+            },
+        },
+    }
+
+
+@router.get("")
 def get_offers(
     type_filter: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get all active offers (Mobile App API)"""
+    """Get all active offers (Mobile App API). Uses JSONResponse to avoid response_model edge cases."""
     try:
         rows = _fetch_active_offer_rows(db, type_filter=type_filter)
 
@@ -180,19 +221,18 @@ def get_offers(
             except Exception:
                 logger.exception("offers: skipping malformed row")
 
-        return ResponseModel(
-            success=True,
-            data={
-                "banners": banners,
-                "textOffers": text_offers,
-                "companyOffers": company_offers,
-            },
+        return JSONResponse(
+            content=_offers_json_body(
+                banners=banners,
+                text_offers=text_offers,
+                company_offers=company_offers,
+            )
         )
     except Exception:
         logger.exception("get_offers failed")
-        if _reraise_in_dev():
+        if _reraise_from_offers_handler():
             raise
-        return ResponseModel(success=True, data=_empty_offers_data())
+        return JSONResponse(content=_offers_json_body())
 
 
 @router.get("/company", response_model=ResponseModel)
