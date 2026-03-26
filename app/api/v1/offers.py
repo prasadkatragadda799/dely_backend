@@ -2,7 +2,6 @@ import logging
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import cast, select, Text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
@@ -14,6 +13,16 @@ from datetime import date, datetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _reraise_in_dev() -> bool:
+    """Re-raise only in local/dev so production never 500s this route from handled errors."""
+    if settings.ENVIRONMENT.lower() in ("production", "prod"):
+        return False
+    return bool(settings.DEBUG)
+
+def _empty_offers_data() -> dict:
+    return {"banners": [], "textOffers": [], "companyOffers": []}
 
 
 def _format_offer_date(value: Any) -> Optional[str]:
@@ -94,30 +103,30 @@ def _fetch_active_offer_rows(
     offer_type_enum: Optional[OfferType] = None,
 ) -> List[Tuple[Any, ...]]:
     """Load active offers using an explicit column list so missing `updated_at` does not break queries."""
-    today = date.today()
-    cols = _active_offers_base_select()
-    stmt = (
-        select(*cols)
-        .where(
-            Offer.is_active == True,
-            Offer.valid_from <= today,
-            Offer.valid_to >= today,
-        )
-        .order_by(Offer.created_at.desc())
-    )
-    if offer_type_enum is not None:
-        stmt = stmt.where(Offer.type == offer_type_enum)
-    elif type_filter:
-        try:
-            ot = OfferType(type_filter)
-            stmt = stmt.where(Offer.type == ot)
-        except ValueError:
-            pass
     try:
+        today = date.today()
+        cols = _active_offers_base_select()
+        stmt = (
+            select(*cols)
+            .where(
+                Offer.is_active == True,
+                Offer.valid_from <= today,
+                Offer.valid_to >= today,
+            )
+            .order_by(Offer.created_at.desc())
+        )
+        if offer_type_enum is not None:
+            stmt = stmt.where(Offer.type == offer_type_enum)
+        elif type_filter:
+            try:
+                ot = OfferType(type_filter)
+                stmt = stmt.where(Offer.type == ot)
+            except ValueError:
+                pass
         return list(db.execute(stmt).all())
-    except SQLAlchemyError:
+    except Exception:
         logger.exception("offers query failed")
-        if settings.DEBUG:
+        if _reraise_in_dev():
             raise
         return []
 
@@ -128,50 +137,62 @@ def get_offers(
     db: Session = Depends(get_db)
 ):
     """Get all active offers (Mobile App API)"""
-    rows = _fetch_active_offer_rows(db, type_filter=type_filter)
-    
-    # Group by type
-    banners = []
-    text_offers = []
-    company_offers = []
-    
-    for row in rows:
-        (
-            _id,
-            title,
-            description,
-            offer_type,
-            image,
-            valid_from,
-            valid_to,
-            _is_active,
-            _created_at,
-        ) = row
-        offer_data = {
-            "id": str(_id) if _id is not None else None,
-            "title": title,
-            "description": description,
-            "imageUrl": image,
-            "validFrom": _format_offer_date(valid_from),
-            "validTo": _format_offer_date(valid_to),
-        }
+    try:
+        rows = _fetch_active_offer_rows(db, type_filter=type_filter)
 
-        ot = _coerce_offer_type(offer_type)
-        if ot == OfferType.BANNER:
-            banners.append(offer_data)
-        elif ot == OfferType.TEXT:
-            text_offers.append(offer_data)
-        elif ot == OfferType.COMPANY:
-            company_offers.append(offer_data)
-    
-    return ResponseModel(
-        success=True,
-        data={
-            "banners": banners,
-            "textOffers": text_offers,
-            "companyOffers": company_offers
-        }
-    )
+        banners: List[dict] = []
+        text_offers: List[dict] = []
+        company_offers: List[dict] = []
+
+        for row in rows:
+            try:
+                vals = tuple(row)
+                if len(vals) != 9:
+                    logger.warning("offers: skipping row with %s columns (expected 9)", len(vals))
+                    continue
+                (
+                    _id,
+                    title,
+                    description,
+                    offer_type,
+                    image,
+                    valid_from,
+                    valid_to,
+                    _is_active,
+                    _created_at,
+                ) = vals
+                offer_data = {
+                    "id": str(_id) if _id is not None else None,
+                    "title": title if title is None else str(title),
+                    "description": description if description is None else str(description),
+                    "imageUrl": image if image is None else str(image),
+                    "validFrom": _format_offer_date(valid_from),
+                    "validTo": _format_offer_date(valid_to),
+                }
+
+                ot = _coerce_offer_type(offer_type)
+                if ot == OfferType.BANNER:
+                    banners.append(offer_data)
+                elif ot == OfferType.TEXT:
+                    text_offers.append(offer_data)
+                elif ot == OfferType.COMPANY:
+                    company_offers.append(offer_data)
+            except Exception:
+                logger.exception("offers: skipping malformed row")
+
+        return ResponseModel(
+            success=True,
+            data={
+                "banners": banners,
+                "textOffers": text_offers,
+                "companyOffers": company_offers,
+            },
+        )
+    except Exception:
+        logger.exception("get_offers failed")
+        if _reraise_in_dev():
+            raise
+        return ResponseModel(success=True, data=_empty_offers_data())
 
 
 @router.get("/company", response_model=ResponseModel)
