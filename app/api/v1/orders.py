@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -15,6 +17,21 @@ from typing import Optional, List, Dict, Any
 from decimal import Decimal
 
 router = APIRouter()
+
+
+def _parse_optional_cancel_body(raw: bytes) -> OrderCancel:
+    """Accept missing/empty body and JSON null (clients often POST with no usable JSON)."""
+    if not raw or not raw.strip():
+        return OrderCancel()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if data is None:
+        return OrderCancel()
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Cancel body must be a JSON object")
+    return OrderCancel.model_validate(data)
 
 
 @router.post("", response_model=ResponseModel, status_code=201)
@@ -208,18 +225,18 @@ def get_invoice(
 
 
 @router.post("/{order_id}/cancel", response_model=ResponseModel)
-def cancel_order(
+async def cancel_order(
+    request: Request,
     order_id: UUID,
-    cancel_data: Optional[OrderCancel] = None,
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Customer-initiated cancel.
     Allowed only before the order is shipped; restores product stock.
-    Body is optional (no body, `{}`, or `{"reason": "..."}`).
+    Body is optional: omit, `null`, `{}`, or `{"reason": "..."}`.
     """
-    payload = cancel_data or OrderCancel()
+    payload = _parse_optional_cancel_body(await request.body())
     order_id_str = str(order_id)
     order = db.query(Order).filter(
         Order.id == order_id_str,
