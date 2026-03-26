@@ -1,14 +1,28 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import cast, select, String
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.offer import OfferResponse
 from app.schemas.common import ResponseModel
 from app.models.offer import Offer, OfferType
 from typing import Optional, List, Tuple, Any
-from datetime import date
+from datetime import date, datetime
 
 router = APIRouter()
+
+
+def _format_offer_date(value: Any) -> Optional[str]:
+    """ISO date string for JSON; handles date/datetime/str/None across DB drivers."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    return str(value)
 
 
 def _coerce_offer_type(value: Any) -> Optional[OfferType]:
@@ -32,7 +46,7 @@ def _active_offers_base_select():
         Offer.title,
         Offer.subtitle,
         Offer.description,
-        Offer.type,
+        cast(Offer.type, String),
         Offer.image,
         Offer.valid_from,
         Offer.valid_to,
@@ -130,8 +144,8 @@ def get_offers(
             "title": title,
             "description": description,
             "imageUrl": image,
-            "validFrom": valid_from.isoformat(),
-            "validTo": valid_to.isoformat(),
+            "validFrom": _format_offer_date(valid_from),
+            "validTo": _format_offer_date(valid_to),
         }
 
         ot = _coerce_offer_type(offer_type)

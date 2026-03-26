@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -210,14 +210,16 @@ def get_invoice(
 @router.post("/{order_id}/cancel", response_model=ResponseModel)
 def cancel_order(
     order_id: UUID,
-    cancel_data: OrderCancel,
+    cancel_data: Optional[OrderCancel] = Body(default=None),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Customer-initiated cancel.
     Allowed only before the order is shipped; restores product stock.
+    Body is optional; send JSON `{}` or `{"reason": "..."}` when the client sends a body.
     """
+    payload = cancel_data or OrderCancel()
     order_id_str = str(order_id)
     order = db.query(Order).filter(
         Order.id == order_id_str,
@@ -253,7 +255,7 @@ def cancel_order(
 
     order.status = OrderStatus.CANCELLED
     order.cancelled_at = datetime.utcnow()
-    order.cancelled_reason = cancel_data.reason
+    order.cancelled_reason = payload.reason
     db.commit()
 
     # Optional status history (changed_by=None for customer action)
@@ -266,7 +268,7 @@ def cancel_order(
             order_id=order_uuid,
             status=OrderStatus.CANCELLED,
             changed_by=None,
-            notes=cancel_data.reason or "Cancelled by customer",
+            notes=payload.reason or "Cancelled by customer",
         )
         db.add(status_history)
         db.commit()
