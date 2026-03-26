@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import cast, select, String
+from sqlalchemy import cast, select, Text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.database import get_db
 from app.schemas.offer import OfferResponse
 from app.schemas.common import ResponseModel
@@ -9,6 +13,7 @@ from typing import Optional, List, Tuple, Any
 from datetime import date, datetime
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _format_offer_date(value: Any) -> Optional[str]:
@@ -40,13 +45,12 @@ def _coerce_offer_type(value: Any) -> Optional[OfferType]:
 
 
 def _active_offers_base_select():
-    """Columns needed for public offer APIs (excludes updated_at for DBs missing that column)."""
+    """Columns for public offer APIs: no subtitle (avoids failures if that column is missing in prod)."""
     return (
         Offer.id,
         Offer.title,
-        Offer.subtitle,
         Offer.description,
-        cast(Offer.type, String),
+        cast(Offer.type, Text).label("offer_type_raw"),
         Offer.image,
         Offer.valid_from,
         Offer.valid_to,
@@ -59,7 +63,6 @@ def _row_to_offer_response(row: Tuple[Any, ...]) -> OfferResponse:
     (
         oid,
         title,
-        subtitle,
         description,
         offer_type,
         image,
@@ -73,7 +76,7 @@ def _row_to_offer_response(row: Tuple[Any, ...]) -> OfferResponse:
     return OfferResponse(
         id=oid,
         title=title,
-        subtitle=subtitle,
+        subtitle=None,
         description=description,
         type=type_str,
         image=image,
@@ -110,7 +113,13 @@ def _fetch_active_offer_rows(
             stmt = stmt.where(Offer.type == ot)
         except ValueError:
             pass
-    return list(db.execute(stmt).all())
+    try:
+        return list(db.execute(stmt).all())
+    except SQLAlchemyError:
+        logger.exception("offers query failed")
+        if settings.DEBUG:
+            raise
+        return []
 
 
 @router.get("", response_model=ResponseModel)
@@ -130,7 +139,6 @@ def get_offers(
         (
             _id,
             title,
-            _subtitle,
             description,
             offer_type,
             image,
@@ -140,7 +148,7 @@ def get_offers(
             _created_at,
         ) = row
         offer_data = {
-            "id": _id,
+            "id": str(_id) if _id is not None else None,
             "title": title,
             "description": description,
             "imageUrl": image,
