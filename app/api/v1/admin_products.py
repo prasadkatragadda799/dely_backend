@@ -100,6 +100,8 @@ async def list_products(
             "divisionId": str(p.division_id) if getattr(p, "division_id", None) else None,
             "mrp": p.mrp,
             "sellingPrice": p.selling_price,
+            "commissionCost": p.commission_cost,
+            "finalSellingPrice": (p.selling_price or 0) + (p.commission_cost or 0),
             "stockQuantity": p.stock_quantity,
             "minOrderQuantity": p.min_order_quantity,
             "unit": p.unit,
@@ -198,6 +200,8 @@ async def create_product(
     mrp: Optional[Decimal] = Form(None),
     sellingPrice: Optional[Decimal] = Form(None),  # camelCase
     selling_price: Optional[Decimal] = Form(None),  # snake_case
+    commissionCost: Optional[Decimal] = Form(None),  # camelCase
+    commission_cost: Optional[Decimal] = Form(None),  # snake_case
     stockQuantity: Optional[int] = Form(None),  # camelCase
     stock_quantity: Optional[int] = Form(None),  # snake_case
     minOrderQuantity: Optional[int] = Form(None),  # camelCase
@@ -241,6 +245,7 @@ async def create_product(
     brand_id = brand_id or brandId
     company_id = company_id or companyId
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
+    commissionCost = commissionCost if commissionCost is not None else commission_cost
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
     minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
     piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
@@ -267,6 +272,8 @@ async def create_product(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mrp is required")
     if sellingPrice is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sellingPrice/selling_price is required")
+    if commissionCost is None:
+        commissionCost = Decimal("0")
     if not unit:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unit is required")
 
@@ -280,6 +287,11 @@ async def create_product(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Selling price cannot be greater than MRP"
+        )
+    if commissionCost < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Commission cost cannot be negative"
         )
     
     # Parse boolean fields (form data sends as strings)
@@ -374,6 +386,7 @@ async def create_product(
         division_id=division_id_str,
         mrp=mrp,
         selling_price=sellingPrice,
+        commission_cost=commissionCost,
         stock_quantity=stockQuantity,
         min_order_quantity=minOrderQuantity,
         unit=unit,
@@ -507,6 +520,8 @@ async def update_product(
     mrp: Optional[Decimal] = Form(None),
     sellingPrice: Optional[Decimal] = Form(None),
     selling_price: Optional[Decimal] = Form(None),
+    commissionCost: Optional[Decimal] = Form(None),
+    commission_cost: Optional[Decimal] = Form(None),
     stockQuantity: Optional[int] = Form(None),
     stock_quantity: Optional[int] = Form(None),
     minOrderQuantity: Optional[int] = Form(None),
@@ -567,6 +582,7 @@ async def update_product(
     brand_id = brand_id if brand_id is not None else brandId
     company_id = company_id if company_id is not None else companyId
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
+    commissionCost = commissionCost if commissionCost is not None else commission_cost
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
     minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
     piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
@@ -720,6 +736,14 @@ async def update_product(
     if sellingPrice is not None:
         product.selling_price = sellingPrice
         update_data["selling_price"] = sellingPrice
+    if commissionCost is not None:
+        if commissionCost < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Commission cost cannot be negative",
+            )
+        product.commission_cost = commissionCost
+        update_data["commission_cost"] = commissionCost
 
     # Slug handling
     if slug is not None and slug != "":

@@ -19,6 +19,7 @@ class Product(Base):
     division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True)  # NULL = default division
     mrp = Column(Numeric(10, 2), nullable=False)  # Maximum Retail Price
     selling_price = Column(Numeric(10, 2), nullable=False)  # Selling Price
+    commission_cost = Column(Numeric(10, 2), default=0, nullable=False)  # Admin-added per-product commission
     stock_quantity = Column(Integer, default=0, nullable=False)
     min_order_quantity = Column(Integer, default=1, nullable=False)
     unit = Column(String(50), nullable=False)
@@ -48,6 +49,7 @@ class Product(Base):
     # Constraints
     __table_args__ = (
         CheckConstraint('selling_price <= mrp', name='check_selling_price_lte_mrp'),
+        CheckConstraint('commission_cost >= 0', name='check_commission_cost_non_negative'),
     )
     
     # Relationships

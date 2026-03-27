@@ -18,6 +18,7 @@ class AdminProductCreate(BaseModel):
     division_id: Optional[UUID] = None  # Kitchen / Grocery; null = default
     mrp: Decimal = Field(..., gt=0)
     selling_price: Decimal = Field(..., gt=0)
+    commission_cost: Decimal = Field(default=Decimal("0"), ge=0)
     stock_quantity: int = Field(default=0, ge=0)
     min_order_quantity: int = Field(default=1, ge=1)
     unit: str
@@ -39,6 +40,7 @@ class AdminProductUpdate(BaseModel):
     division_id: Optional[UUID] = None
     mrp: Optional[Decimal] = Field(None, gt=0)
     selling_price: Optional[Decimal] = Field(None, gt=0)
+    commission_cost: Optional[Decimal] = Field(None, ge=0)
     stock_quantity: Optional[int] = Field(None, ge=0)
     min_order_quantity: Optional[int] = Field(None, ge=1)
     unit: Optional[str] = None
@@ -91,6 +93,7 @@ class AdminProductResponse(BaseModel):
     division_id: Optional[UUID] = None
     mrp: Decimal
     selling_price: Decimal
+    commission_cost: Decimal = Field(default=Decimal("0"))
     stock_quantity: int
     min_order_quantity: int
     unit: str
@@ -139,6 +142,7 @@ class AdminProductResponse(BaseModel):
             'division_id': UUID(str(obj.division_id)) if getattr(obj, 'division_id', None) else None,
             'mrp': obj.mrp,
             'selling_price': obj.selling_price,
+            'commission_cost': getattr(obj, 'commission_cost', Decimal("0")),
             'stock_quantity': obj.stock_quantity,
             'min_order_quantity': obj.min_order_quantity,
             'unit': obj.unit,
