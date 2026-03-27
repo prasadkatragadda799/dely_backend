@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from app.database import get_db
 from app.api.deps import get_current_user, require_kyc_verified
 from app.schemas.product import ProductResponse, ProductListResponse
@@ -76,6 +76,7 @@ def get_products(
 ):
     """Get all products with filters (Mobile App API) - Requires KYC verification"""
     query = db.query(Product).filter(Product.is_available == True)
+    effective_selling_price = Product.selling_price + func.coalesce(Product.commission_cost, 0)
 
     # Division filter (e.g. Kitchen)
     #
@@ -127,17 +128,17 @@ def get_products(
             )
         )
     if min_price:
-        query = query.filter(Product.selling_price >= min_price)
+        query = query.filter(effective_selling_price >= min_price)
     if max_price:
-        query = query.filter(Product.selling_price <= max_price)
+        query = query.filter(effective_selling_price <= max_price)
     if featured is not None:
         query = query.filter(Product.is_featured == featured)
     
     # Apply sorting
     if sort == "price_asc":
-        order_by = Product.selling_price.asc()
+        order_by = effective_selling_price.asc()
     elif sort == "price_desc":
-        order_by = Product.selling_price.desc()
+        order_by = effective_selling_price.desc()
     elif sort == "name":
         order_by = Product.name.asc()
     elif sort == "popularity":
@@ -161,10 +162,11 @@ def get_products(
     # Format products with enhanced data
     product_list = []
     for p in products:
-        # Calculate discount percentage
+        # Calculate discount percentage using effective selling price.
+        effective_price = (p.selling_price or 0) + (p.commission_cost or 0)
         discount = 0.0
-        if p.mrp and p.selling_price and p.mrp > 0:
-            discount = float(((p.mrp - p.selling_price) / p.mrp) * 100)
+        if p.mrp and p.mrp > 0:
+            discount = float(((p.mrp - effective_price) / p.mrp) * 100)
         
         product_data = {
             "id": p.id,
@@ -172,7 +174,7 @@ def get_products(
             "slug": p.slug,
             "description": p.description,
             "mrp": float(p.mrp) if p.mrp else None,
-            "sellingPrice": float(p.selling_price) if p.selling_price else None,
+            "sellingPrice": float(effective_price) if effective_price is not None else None,
             "discount": round(discount, 2),
             "stockQuantity": p.stock_quantity,
             "minOrderQuantity": p.min_order_quantity,
@@ -274,10 +276,11 @@ def get_product(
     if not product.is_available:
         raise HTTPException(status_code=404, detail="Product not available")
     
-    # Calculate discount
+    # Calculate discount using effective selling price
+    effective_price = (product.selling_price or 0) + (product.commission_cost or 0)
     discount = 0.0
-    if product.mrp and product.selling_price and product.mrp > 0:
-        discount = float(((product.mrp - product.selling_price) / product.mrp) * 100)
+    if product.mrp and product.mrp > 0:
+        discount = float(((product.mrp - effective_price) / product.mrp) * 100)
     
     product_data = {
         "id": product.id,
@@ -285,7 +288,7 @@ def get_product(
         "slug": product.slug,
         "description": product.description,
         "mrp": float(product.mrp) if product.mrp else None,
-        "sellingPrice": float(product.selling_price) if product.selling_price else None,
+        "sellingPrice": float(effective_price) if effective_price is not None else None,
         "discount": round(discount, 2),
         "stockQuantity": product.stock_quantity,
         "minOrderQuantity": product.min_order_quantity,
@@ -378,9 +381,10 @@ def get_product_by_slug(
         raise HTTPException(status_code=404, detail="Product not available")
     
     # Use same formatting as get_product
+    effective_price = (product.selling_price or 0) + (product.commission_cost or 0)
     discount = 0.0
-    if product.mrp and product.selling_price and product.mrp > 0:
-        discount = float(((product.mrp - product.selling_price) / product.mrp) * 100)
+    if product.mrp and product.mrp > 0:
+        discount = float(((product.mrp - effective_price) / product.mrp) * 100)
     
     product_data = {
         "id": product.id,
@@ -388,7 +392,7 @@ def get_product_by_slug(
         "slug": product.slug,
         "description": product.description,
         "mrp": float(product.mrp) if product.mrp else None,
-        "sellingPrice": float(product.selling_price) if product.selling_price else None,
+        "sellingPrice": float(effective_price) if effective_price is not None else None,
         "discount": round(discount, 2),
         "stockQuantity": product.stock_quantity,
         "minOrderQuantity": product.min_order_quantity,
