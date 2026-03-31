@@ -10,6 +10,10 @@ class UserBase(BaseModel):
     phone: str
     business_name: str
     gst_number: Optional[str] = None
+    gst_certificate: Optional[str] = None
+    fssai_license: Optional[str] = None
+    udyam_registration: Optional[str] = None
+    trade_certificate: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -42,6 +46,10 @@ class UserUpdate(BaseModel):
     )  # Retail, Wholesale, Distributor
 
     gst_number: Optional[str] = Field(default=None, validation_alias=AliasChoices("gst_number", "gstNumber"))
+    gst_certificate: Optional[str] = Field(default=None, validation_alias=AliasChoices("gst_certificate", "gstCertificate"))
+    fssai_license: Optional[str] = Field(default=None, validation_alias=AliasChoices("fssai_license", "fssaiLicense"))
+    udyam_registration: Optional[str] = Field(default=None, validation_alias=AliasChoices("udyam_registration", "udyamRegistration"))
+    trade_certificate: Optional[str] = Field(default=None, validation_alias=AliasChoices("trade_certificate", "tradeCertificate"))
 
     fssai_number: Optional[str] = Field(default=None, validation_alias=AliasChoices("fssai_number", "fssaiNumber"))
     fssaiNumber: Optional[str] = None  # legacy / alternative access (used by some endpoints)
@@ -97,6 +105,10 @@ class UserUpdate(BaseModel):
             "business_name",
             "business_type",
             "gst_number",
+            "gst_certificate",
+            "fssai_license",
+            "udyam_registration",
+            "trade_certificate",
             "fssai_number",
             "fssaiNumber",
             "pan_number",

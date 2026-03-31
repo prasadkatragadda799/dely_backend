@@ -73,6 +73,14 @@ def get_profile(
         "businessType": None,  # camelCase alternative
         "gst_number": current_user.gst_number,
         "gstNumber": current_user.gst_number,  # camelCase alternative
+        "gst_certificate": current_user.gst_certificate,
+        "gstCertificate": current_user.gst_certificate,
+        "fssai_license": current_user.fssai_license,
+        "fssaiLicense": current_user.fssai_license,
+        "udyam_registration": current_user.udyam_registration,
+        "udyamRegistration": current_user.udyam_registration,
+        "trade_certificate": current_user.trade_certificate,
+        "tradeCertificate": current_user.trade_certificate,
         "fssai_number": current_user.fssai_number,
         "fssaiNumber": current_user.fssai_number,  # camelCase alternative
         "pan_number": current_user.pan_number,
@@ -153,6 +161,18 @@ def update_profile(
         if user_data.gst_number and not re.match(r'^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$', user_data.gst_number.upper()):
             raise HTTPException(status_code=400, detail="Invalid GST number format")
         current_user.gst_number = user_data.gst_number.upper() if user_data.gst_number else None
+
+    if user_data.gst_certificate is not None:
+        current_user.gst_certificate = str(user_data.gst_certificate).strip() or None
+
+    if user_data.fssai_license is not None:
+        current_user.fssai_license = str(user_data.fssai_license).strip() or None
+
+    if user_data.udyam_registration is not None:
+        current_user.udyam_registration = str(user_data.udyam_registration).strip() or None
+
+    if user_data.trade_certificate is not None:
+        current_user.trade_certificate = str(user_data.trade_certificate).strip() or None
     
     # Update FSSAI license number with validation (digits only, exactly 14)
     fssai_to_update = user_data.fssaiNumber or user_data.fssai_number
@@ -322,6 +342,14 @@ def update_profile(
         "businessType": business_type,
         "gst_number": current_user.gst_number,
         "gstNumber": current_user.gst_number,
+        "gst_certificate": current_user.gst_certificate,
+        "gstCertificate": current_user.gst_certificate,
+        "fssai_license": current_user.fssai_license,
+        "fssaiLicense": current_user.fssai_license,
+        "udyam_registration": current_user.udyam_registration,
+        "udyamRegistration": current_user.udyam_registration,
+        "trade_certificate": current_user.trade_certificate,
+        "tradeCertificate": current_user.trade_certificate,
         "fssai_number": current_user.fssai_number,
         "fssaiNumber": current_user.fssai_number,
         "pan_number": current_user.pan_number,
