@@ -6,7 +6,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import Request
 from app.models.admin_activity_log import AdminActivityLog
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 
 
 def log_admin_activity(
@@ -40,17 +41,44 @@ def log_admin_activity(
         # Get user agent
         user_agent = request.headers.get("user-agent")
     
+    def _to_json_safe(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Decimal):
+            # Keep numeric semantics for JSON columns.
+            return float(value)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, UUID):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(k): _to_json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [_to_json_safe(v) for v in value]
+        # Last resort: avoid raising due to non-serializable custom objects.
+        return str(value)
+
+    safe_details = _to_json_safe(details) if details is not None else None
+
     activity_log = AdminActivityLog(
         admin_id=admin_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        details=details,
+        details=safe_details,
         ip_address=ip_address,
         user_agent=user_agent
     )
-    
-    db.add(activity_log)
-    db.commit()
+
+    try:
+        db.add(activity_log)
+        db.commit()
+    except Exception:
+        # Activity logging should never break the primary business action.
+        db.rollback()
+        return None
+
     return activity_log
 
