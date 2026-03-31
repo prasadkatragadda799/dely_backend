@@ -424,8 +424,9 @@ async def create_product(
             except Exception as e:
                 logger.error(f"Error creating product variant for product {product.id}: {str(e)}")
 
-        # Optionally sync main product price from first variant
-        if created_variants:
+        # Optionally sync main product price from first variant only when
+        # explicit product-level prices are not provided in the request.
+        if created_variants and mrp is None and sellingPrice is None:
             first = created_variants[0]
             try:
                 if first.mrp is not None:
@@ -793,8 +794,10 @@ async def update_product(
                     f"Error updating product variant for product {product.id}: {str(e)}"
                 )
 
-        # Optionally sync main product price from first variant
-        if created_variants:
+        # Keep admin-entered product-level prices authoritative.
+        # Only fall back to first variant pricing when the request did not
+        # include product-level mrp/sellingPrice.
+        if created_variants and mrp is None and sellingPrice is None:
             first = created_variants[0]
             try:
                 if first.mrp is not None:
