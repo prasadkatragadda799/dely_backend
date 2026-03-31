@@ -3,7 +3,8 @@ Admin Order Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, text
+from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date, timedelta
@@ -24,6 +25,38 @@ from app.utils.notification_helper import create_notification
 from app.models.admin import Admin
 
 router = APIRouter()
+
+
+def _get_orderstatus_literals(db: Session) -> set[str]:
+    """Return enum labels currently supported by DB for orderstatus."""
+    try:
+        rows = db.execute(
+            text("SELECT unnest(enum_range(NULL::orderstatus))::text")
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+    except Exception:
+        return set()
+
+
+def _resolve_db_status_literal(status_value: str, db_literals: set[str]) -> str:
+    """
+    Pick the DB-compatible enum literal for a logical status value.
+    Supports both legacy uppercase and newer lowercase enum labels.
+    """
+    if not db_literals:
+        return status_value.upper()
+
+    candidates = [
+        status_value,
+        status_value.lower(),
+        status_value.upper(),
+        status_value.capitalize(),
+    ]
+    for candidate in candidates:
+        if candidate in db_literals:
+            return candidate
+
+    raise ValueError(f"Status '{status_value}' is not supported by DB enum")
 
 
 @router.get("", response_model=ResponseModel)
@@ -415,32 +448,63 @@ async def update_order_status(
     order = db.query(Order).filter(Order.id == order_id_str).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
+
     # Handle "canceled" -> "cancelled" mapping
-    new_status = status_data.status
-    if new_status.lower() == "canceled":
-        new_status = "cancelled"
-    
+    requested_status = (status_data.status or "").strip().lower()
+    if requested_status == "canceled":
+        requested_status = "cancelled"
+
     try:
-        order_status = OrderStatus(new_status)
+        order_status = OrderStatus(requested_status)
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid status: {new_status}. Valid values: {', '.join([s.value for s in OrderStatus])}"
+            detail=f"Invalid status: {requested_status}. Valid values: {', '.join([s.value for s in OrderStatus])}"
         )
-    
+
     # Validate status transition
     if order.status in [OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.CANCELLED]:
         if order_status not in [OrderStatus.CANCELLED]:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot change status from {order.status.value} to {new_status}"
+                detail=f"Cannot change status from {order.status.value} to {requested_status}"
             )
-    
+
     old_status = order.status
-    order.status = order_status
-    db.commit()
-    
+    db_literals = _get_orderstatus_literals(db)
+    try:
+        db_status_literal = _resolve_db_status_literal(order_status.value, db_literals)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        # Cast explicitly to DB enum literal to survive enum case/schema drift.
+        db.execute(
+            text(
+                "UPDATE orders "
+                "SET status = CAST(:status AS orderstatus), updated_at = :updated_at "
+                "WHERE id = :order_id"
+            ),
+            {
+                "status": db_status_literal,
+                "updated_at": datetime.utcnow(),
+                "order_id": order_id_str,
+            },
+        )
+        db.commit()
+    except (StatementError, DataError, IntegrityError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to update order status: {str(exc)}",
+        )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update order status due to server error: {str(exc)}",
+        )
+
     # Create status history entry
     # Note: OrderStatusHistory uses UUID for order_id, but Order.id is String(36)
     # We need to handle this conversion
@@ -476,7 +540,7 @@ async def update_order_status(
             entity_id=entity_uuid,
             details={
                 "old_status": old_status.value,
-                "new_status": new_status,
+                "new_status": requested_status,
                 "notes": status_data.notes
             },
             request=request
@@ -509,8 +573,8 @@ async def update_order_status(
         success=True,
         data={
             "id": str(order.id),
-            "status": order.status.value,
-            "order_status": order.status.value
+            "status": requested_status,
+            "order_status": requested_status
         },
         message="Order status updated successfully"
     )
