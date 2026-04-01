@@ -10,8 +10,10 @@ from app.schemas.common import ResponseModel
 from app.models.delivery_person import DeliveryPerson
 from app.utils.security import verify_password, create_access_token, create_refresh_token, decode_token
 from app.config import settings
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # Dependency to get current delivery person from token
@@ -60,9 +62,29 @@ async def delivery_login(
     db: Session = Depends(get_db)
 ):
     """Delivery person login"""
-    # Find delivery person by phone
+    raw_identifier = (credentials.phone or "").strip()
+    normalized_digits = "".join(ch for ch in raw_identifier if ch.isdigit())
+
+    # Find delivery person by:
+    # 1) exact phone as provided
+    # 2) normalized digits phone variants (with/without country code)
+    # 3) employee_id (partner id style login)
+    phone_candidates = [raw_identifier] if raw_identifier else []
+    if normalized_digits:
+        phone_candidates.append(normalized_digits)
+        if len(normalized_digits) == 10:
+            phone_candidates.append(f"91{normalized_digits}")
+            phone_candidates.append(f"+91{normalized_digits}")
+        if len(normalized_digits) == 12 and normalized_digits.startswith("91"):
+            phone_candidates.append(f"+{normalized_digits}")
+
+    # Keep unique preserving order
+    seen = set()
+    phone_candidates = [p for p in phone_candidates if not (p in seen or seen.add(p))]
+
     delivery_person = db.query(DeliveryPerson).filter(
-        DeliveryPerson.phone == credentials.phone
+        (DeliveryPerson.phone.in_(phone_candidates)) |
+        (DeliveryPerson.employee_id == raw_identifier)
     ).first()
     
     if not delivery_person or not verify_password(credentials.password, delivery_person.password_hash):
@@ -77,10 +99,15 @@ async def delivery_login(
             detail="Account is inactive. Please contact admin."
         )
     
-    # Update last login and set online
-    delivery_person.last_login = datetime.utcnow()
-    delivery_person.is_online = True
-    db.commit()
+    # Update last login and set online (best effort).
+    # Login should not fail if these status fields have DB mismatch in older envs.
+    try:
+        delivery_person.last_login = datetime.utcnow()
+        delivery_person.is_online = True
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning("Delivery login status update failed for %s: %s", delivery_person.id, e)
     
     # Create tokens
     token_data = {
