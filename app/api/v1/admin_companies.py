@@ -26,6 +26,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _brand_id_to_uuid(brand_id: str) -> UUID:
+    """Brand.id is stored as String(36), with or without dashes."""
+    s = str(brand_id).strip()
+    try:
+        return UUID(s)
+    except ValueError:
+        hex_only = s.replace("-", "")
+        if len(hex_only) == 32:
+            return UUID(hex=hex_only)
+        raise
+
+
+def _brand_to_admin_response(brand: Brand) -> AdminBrandResponse:
+    """
+    Build AdminBrandResponse without model_validate(brand): relationship attributes are ORM
+    instances, not dicts, which breaks Optional[dict] fields and causes 500 after commit.
+    """
+    company = None
+    if brand.company is not None:
+        company = {"id": brand.company.id, "name": brand.company.name}
+    category = None
+    if brand.category is not None:
+        category = {"id": brand.category.id, "name": brand.category.name}
+    return AdminBrandResponse(
+        id=_brand_id_to_uuid(brand.id),
+        name=brand.name,
+        company=company,
+        category=category,
+        logo_url=brand.logo_url,
+        created_at=brand.created_at,
+        updated_at=brand.updated_at,
+    )
+
+
 # ========== Companies ==========
 
 @router.get("/companies", response_model=ResponseModel)
@@ -458,15 +492,9 @@ async def get_brand(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
-    brand_data = AdminBrandResponse.model_validate(brand)
-    if brand.company:
-        brand_data.company = {"id": brand.company.id, "name": brand.company.name}
-    if brand.category:
-        brand_data.category = {"id": brand.category.id, "name": brand.category.name}
-    
     return ResponseModel(
         success=True,
-        data=brand_data,
+        data=_brand_to_admin_response(brand),
         message="Brand retrieved successfully"
     )
 
@@ -539,14 +567,14 @@ async def create_brand(
         admin_id=admin.id,
         action="brand_created",
         entity_type="brand",
-        entity_id=brand.id,
+        entity_id=_brand_id_to_uuid(brand.id),
         details={"name": brand.name},
         request=request
     )
     
     return ResponseModel(
         success=True,
-        data=AdminBrandResponse.model_validate(brand),
+        data=_brand_to_admin_response(brand),
         message="Brand created successfully"
     )
 
@@ -589,7 +617,7 @@ async def update_brand(
     
     return ResponseModel(
         success=True,
-        data=AdminBrandResponse.model_validate(brand),
+        data=_brand_to_admin_response(brand),
         message="Brand updated successfully"
     )
 
