@@ -19,7 +19,14 @@ class CartItemBase(BaseModel):
 
 
 class CartItemAdd(CartItemBase):
-    pass
+    price_option_key: str = "unit"
+
+    def __init__(self, **data):
+        if "priceOptionKey" in data and "price_option_key" not in data:
+            data["price_option_key"] = str(data.pop("priceOptionKey") or "unit")
+        if "price_option_key" not in data:
+            data["price_option_key"] = "unit"
+        super().__init__(**data)
 
 
 class CartItemUpdate(BaseModel):

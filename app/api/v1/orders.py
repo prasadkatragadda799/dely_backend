@@ -96,15 +96,22 @@ def create_order(
     db.add(order)
     db.flush()
 
+    from app.utils.product_pricing import (
+        assert_tier_allowed,
+        customer_price_with_commission,
+        normalize_price_tier,
+    )
+
     order_items_data = []
     for item in order_data.items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if not product:
             raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
-        
-        # Use selling_price (or fallback to legacy price field)
-        price = product.selling_price if product.selling_price else (product.price if hasattr(product, 'price') and product.price else Decimal('0.00'))
-        
+
+        tier = normalize_price_tier(item.price_option_key)
+        assert_tier_allowed(product, tier)
+        price = customer_price_with_commission(product, tier)
+
         order_item = OrderItem(
             order_id=str(order.id),
             product_id=str(item.product_id),

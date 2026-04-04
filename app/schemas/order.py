@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -6,9 +6,15 @@ from decimal import Decimal
 
 
 class OrderItemCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     product_id: UUID
     quantity: int
     price: Optional[Decimal] = None  # Optional, will be fetched from product if not provided
+    price_option_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("price_option_key", "priceOptionKey"),
+    )
 
 
 class OrderCreate(BaseModel):

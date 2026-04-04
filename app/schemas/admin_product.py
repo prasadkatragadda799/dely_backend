@@ -94,6 +94,10 @@ class AdminProductResponse(BaseModel):
     mrp: Decimal
     selling_price: Decimal
     commission_cost: Decimal = Field(default=Decimal("0"))
+    set_selling_price: Optional[Decimal] = None
+    set_mrp: Optional[Decimal] = None
+    remaining_selling_price: Optional[Decimal] = None
+    remaining_mrp: Optional[Decimal] = None
     stock_quantity: int
     min_order_quantity: int
     unit: str
@@ -143,6 +147,10 @@ class AdminProductResponse(BaseModel):
             'mrp': obj.mrp,
             'selling_price': obj.selling_price,
             'commission_cost': getattr(obj, 'commission_cost', Decimal("0")),
+            'set_selling_price': getattr(obj, 'set_selling_price', None),
+            'set_mrp': getattr(obj, 'set_mrp', None),
+            'remaining_selling_price': getattr(obj, 'remaining_selling_price', None),
+            'remaining_mrp': getattr(obj, 'remaining_mrp', None),
             'stock_quantity': obj.stock_quantity,
             'min_order_quantity': obj.min_order_quantity,
             'unit': obj.unit,

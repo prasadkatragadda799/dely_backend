@@ -41,6 +41,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _validate_tier_selling_vs_mrp(
+    label: str,
+    selling: Optional[Decimal],
+    tier_mrp: Optional[Decimal],
+    product_mrp: Decimal,
+) -> None:
+    if selling is None:
+        return
+    cap = tier_mrp if tier_mrp is not None else product_mrp
+    if selling > cap:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{label}: selling price cannot exceed MRP for that tier (or product MRP if tier MRP is omitted)",
+        )
+
+
 @router.get("", response_model=ResponseModel)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -110,6 +126,10 @@ async def list_products(
             "minOrderQuantity": p.min_order_quantity,
             "unit": p.unit,
             "piecesPerSet": p.pieces_per_set,
+            "setSellingPrice": getattr(p, "set_selling_price", None),
+            "setMrp": getattr(p, "set_mrp", None),
+            "remainingSellingPrice": getattr(p, "remaining_selling_price", None),
+            "remainingMrp": getattr(p, "remaining_mrp", None),
             "specifications": p.specifications,
             "isFeatured": p.is_featured,
             "isAvailable": p.is_available,
@@ -213,6 +233,14 @@ async def create_product(
     unit: Optional[str] = Form(None),
     piecesPerSet: Optional[int] = Form(None),  # camelCase
     pieces_per_set: Optional[int] = Form(None),  # snake_case
+    setSellingPrice: Optional[Decimal] = Form(None),
+    set_selling_price: Optional[Decimal] = Form(None),
+    setMrp: Optional[Decimal] = Form(None),
+    set_mrp: Optional[Decimal] = Form(None),
+    remainingSellingPrice: Optional[Decimal] = Form(None),
+    remaining_selling_price: Optional[Decimal] = Form(None),
+    remainingMrp: Optional[Decimal] = Form(None),
+    remaining_mrp: Optional[Decimal] = Form(None),
     specifications: Optional[str] = Form(None),  # JSON string
     isFeatured: Optional[str] = Form(None),  # camelCase (string)
     is_featured: Optional[str] = Form(None),  # snake_case (string/bool-ish)
@@ -253,6 +281,10 @@ async def create_product(
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
     minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
     piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    set_sp = setSellingPrice if setSellingPrice is not None else set_selling_price
+    set_m = setMrp if setMrp is not None else set_mrp
+    rem_sp = remainingSellingPrice if remainingSellingPrice is not None else remaining_selling_price
+    rem_m = remainingMrp if remainingMrp is not None else remaining_mrp
     isFeatured = isFeatured if isFeatured is not None else is_featured
     isAvailable = isAvailable if isAvailable is not None else is_available
     meta_title = meta_title if meta_title is not None else metaTitle
@@ -292,6 +324,8 @@ async def create_product(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Selling price cannot be greater than MRP"
         )
+    _validate_tier_selling_vs_mrp("Set price", set_sp, set_m, mrp)
+    _validate_tier_selling_vs_mrp("Remaining price", rem_sp, rem_m, mrp)
     if commissionCost < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -391,6 +425,10 @@ async def create_product(
         mrp=mrp,
         selling_price=sellingPrice,
         commission_cost=commissionCost,
+        set_selling_price=set_sp,
+        set_mrp=set_m,
+        remaining_selling_price=rem_sp,
+        remaining_mrp=rem_m,
         stock_quantity=stockQuantity,
         min_order_quantity=minOrderQuantity,
         unit=unit,
@@ -534,6 +572,14 @@ async def update_product(
     unit: Optional[str] = Form(None),
     piecesPerSet: Optional[int] = Form(None),
     pieces_per_set: Optional[int] = Form(None),
+    setSellingPrice: Optional[Decimal] = Form(None),
+    set_selling_price: Optional[Decimal] = Form(None),
+    setMrp: Optional[Decimal] = Form(None),
+    set_mrp: Optional[Decimal] = Form(None),
+    remainingSellingPrice: Optional[Decimal] = Form(None),
+    remaining_selling_price: Optional[Decimal] = Form(None),
+    remainingMrp: Optional[Decimal] = Form(None),
+    remaining_mrp: Optional[Decimal] = Form(None),
     specifications: Optional[str] = Form(None),
     isFeatured: Optional[str] = Form(None),
     is_featured: Optional[str] = Form(None),
@@ -591,6 +637,10 @@ async def update_product(
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
     minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
     piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    set_sp_u = setSellingPrice if setSellingPrice is not None else set_selling_price
+    set_m_u = setMrp if setMrp is not None else set_mrp
+    rem_sp_u = remainingSellingPrice if remainingSellingPrice is not None else remaining_selling_price
+    rem_m_u = remainingMrp if remainingMrp is not None else remaining_mrp
     isFeatured = isFeatured if isFeatured is not None else is_featured
     isAvailable = isAvailable if isAvailable is not None else is_available
     meta_title = meta_title if meta_title is not None else metaTitle
@@ -749,6 +799,28 @@ async def update_product(
             )
         product.commission_cost = commissionCost
         update_data["commission_cost"] = commissionCost
+
+    if setSellingPrice is not None or set_selling_price is not None:
+        product.set_selling_price = set_sp_u
+        update_data["set_selling_price"] = set_sp_u
+    if setMrp is not None or set_mrp is not None:
+        product.set_mrp = set_m_u
+        update_data["set_mrp"] = set_m_u
+    if remainingSellingPrice is not None or remaining_selling_price is not None:
+        product.remaining_selling_price = rem_sp_u
+        update_data["remaining_selling_price"] = rem_sp_u
+    if remainingMrp is not None or remaining_mrp is not None:
+        product.remaining_mrp = rem_m_u
+        update_data["remaining_mrp"] = rem_m_u
+
+    eff_mrp = product.mrp
+    _validate_tier_selling_vs_mrp("Set price", product.set_selling_price, product.set_mrp, eff_mrp)
+    _validate_tier_selling_vs_mrp(
+        "Remaining price",
+        product.remaining_selling_price,
+        product.remaining_mrp,
+        eff_mrp,
+    )
 
     # Slug handling
     if slug is not None and slug != "":

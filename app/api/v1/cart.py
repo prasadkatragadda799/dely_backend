@@ -7,7 +7,14 @@ from app.schemas.cart import CartItemAdd, CartItemUpdate, CartResponse, CartItem
 from app.schemas.common import ResponseModel
 from app.models.cart import Cart
 from app.models.product import Product
-from app.services.cart_service import get_cart_summary, get_cart_summary_for_division
+from app.services.cart_service import summarize_cart_lines
+from app.utils.product_pricing import (
+    assert_tier_allowed,
+    customer_price_with_commission,
+    discount_percent,
+    normalize_price_tier,
+    tier_mrp,
+)
 from uuid import UUID
 from decimal import Decimal
 from typing import Optional
@@ -15,11 +22,13 @@ from typing import Optional
 router = APIRouter()
 
 
-def _cart_line_product_dict(product: Product) -> dict:
-    """Shared product shape for cart responses (mobile shows unit / pieces / variant label)."""
-    price = float(product.selling_price) if product.selling_price else (
-        float(product.price) if hasattr(product, "price") and product.price else 0.0
-    )
+def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
+    """Cart line product snapshot; price matches the selected tier (incl. commission)."""
+    tier = normalize_price_tier(price_tier)
+    sell_dec = customer_price_with_commission(product, tier)
+    mrp_dec = tier_mrp(product, tier)
+    price = float(sell_dec)
+    original = float(mrp_dec) if mrp_dec else price
     variant_set = None
     if getattr(product, "variants", None):
         for v in product.variants:
@@ -34,8 +43,8 @@ def _cart_line_product_dict(product: Product) -> dict:
             product.brand if hasattr(product, "brand") else ""
         ),
         "price": price,
-        "original_price": float(product.mrp) if product.mrp else price,
-        "discount": 0.0,
+        "original_price": original,
+        "discount": discount_percent(mrp_dec, sell_dec),
         "images": [],
         "rating": float(product.rating) if product.rating else 0.0,
         "is_available": product.is_available,
@@ -55,10 +64,6 @@ def _cart_line_product_dict(product: Product) -> dict:
         ]
     elif hasattr(product, "images") and product.images and isinstance(product.images, list):
         d["images"] = product.images
-    if product.mrp and product.selling_price and product.mrp > 0:
-        d["discount"] = round(
-            float(((product.mrp - product.selling_price) / product.mrp) * 100), 2
-        )
     return d
 
 
@@ -106,26 +111,22 @@ def get_cart(
     for item in cart_items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
-            price = float(product.selling_price) if product.selling_price else (
-                float(product.price) if hasattr(product, "price") and product.price else 0.0
-            )
-            subtotal = Decimal(str(price)) * item.quantity
-            product_data = _cart_line_product_dict(product)
+            tier = getattr(item, "price_option_key", None) or "unit"
+            sell_dec = customer_price_with_commission(product, tier)
+            subtotal = sell_dec * item.quantity
+            product_data = _cart_line_product_dict(product, tier)
             items.append({
                 "id": str(item.id),
                 "product_id": str(item.product_id),
                 "quantity": item.quantity,
+                "price_option_key": tier,
                 "product": product_data,
                 "subtotal": float(subtotal),
                 "created_at": item.created_at.isoformat() if item.created_at else None,
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None
             })
-    
-    summary_data = (
-        get_cart_summary_for_division(db, current_user.id, [str(c.product_id) for c in cart_items])
-        if division_filtered
-        else get_cart_summary(db, current_user.id)
-    )
+
+    summary_data = summarize_cart_lines(db, cart_items)
     summary = CartSummary(**summary_data)
 
     return ResponseModel(
@@ -151,6 +152,9 @@ def add_to_cart(
     if not product.is_available:
         raise HTTPException(status_code=400, detail="Product is not available")
 
+    tier = normalize_price_tier(getattr(item_data, "price_option_key", None))
+    assert_tier_allowed(product, tier)
+
     stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
     if stock < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
@@ -161,7 +165,8 @@ def add_to_cart(
 
     existing_item = db.query(Cart).filter(
         Cart.user_id == str(current_user.id),
-        Cart.product_id == str(item_data.product_id)
+        Cart.product_id == str(item_data.product_id),
+        Cart.price_option_key == tier,
     ).first()
 
     if existing_item:
@@ -186,19 +191,13 @@ def add_to_cart(
             user_id=str(current_user.id),
             product_id=str(item_data.product_id),
             division_id=product_division_id,
+            price_option_key=tier,
             quantity=item_data.quantity
         )
         db.add(cart_item)
         db.commit()
         db.refresh(cart_item)
         existing_item = cart_item
-    
-    product_data = db.query(Product).filter(Product.id == str(item_data.product_id)).first()
-    price = float(product_data.selling_price) if product_data.selling_price else (
-        float(product_data.price) if hasattr(product_data, "price") and product_data.price else 0.0
-    )
-    subtotal = Decimal(str(price)) * existing_item.quantity
-    product_dict = _cart_line_product_dict(product_data)
 
     # Return full cart after adding item (matching requirements)
     cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
@@ -206,22 +205,22 @@ def add_to_cart(
     for cart_item in cart_items:
         prod = db.query(Product).filter(Product.id == str(cart_item.product_id)).first()
         if prod:
-            price = float(prod.selling_price) if prod.selling_price else (
-                float(prod.price) if hasattr(prod, "price") and prod.price else 0.0
-            )
-            subtotal_val = Decimal(str(price)) * cart_item.quantity
-            prod_dict = _cart_line_product_dict(prod)
+            ctier = getattr(cart_item, "price_option_key", None) or "unit"
+            sell_dec = customer_price_with_commission(prod, ctier)
+            subtotal_val = sell_dec * cart_item.quantity
+            prod_dict = _cart_line_product_dict(prod, ctier)
             items.append({
                 "id": str(cart_item.id),
                 "product_id": str(cart_item.product_id),
                 "quantity": cart_item.quantity,
+                "price_option_key": ctier,
                 "product": prod_dict,
                 "subtotal": float(subtotal_val),
                 "created_at": cart_item.created_at.isoformat() if cart_item.created_at else None,
                 "updated_at": cart_item.updated_at.isoformat() if cart_item.updated_at else None
             })
-    
-    summary_data = get_cart_summary(db, current_user.id)
+
+    summary_data = summarize_cart_lines(db, cart_items)
     summary = CartSummary(**summary_data)
     
     return ResponseModel(

@@ -11,6 +11,7 @@ from app.models.category import Category
 from app.models.division import Division
 from app.utils.pagination import paginate
 from app.utils.discount import calculate_discount_percentage
+from app.utils.product_pricing import build_price_options_for_api
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -208,6 +209,8 @@ def get_products(
         else:
             product_data["variants"] = []
 
+        product_data["priceOptions"] = build_price_options_for_api(p)
+
         # Add brand information
         if p.brand_rel:
             product_data["brand"] = {
@@ -323,6 +326,8 @@ def get_product(
             })
     else:
         product_data["variants"] = []
+
+    product_data["priceOptions"] = build_price_options_for_api(product)
 
     # Add brand
     if product.brand_rel:

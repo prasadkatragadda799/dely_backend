@@ -2,6 +2,12 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.product import Product
+from app.utils.product_pricing import (
+    assert_tier_allowed,
+    customer_price_with_commission,
+    normalize_price_tier,
+    tier_mrp,
+)
 from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
@@ -44,8 +50,10 @@ def calculate_order_totals(items: list, db: Session) -> dict:
             else int(getattr(product, "min_order", 1) or 1)
         )
 
-        selling_price = getattr(product, "selling_price", None) or getattr(product, "price", None)
-        mrp = getattr(product, "mrp", None) or getattr(product, "original_price", None) or selling_price
+        tier = normalize_price_tier(item.get("price_option_key"))
+        assert_tier_allowed(product, tier)
+        selling_price = customer_price_with_commission(product, tier)
+        mrp = tier_mrp(product, tier)
 
         if stock_available < qty:
             raise HTTPException(
@@ -56,7 +64,7 @@ def calculate_order_totals(items: list, db: Session) -> dict:
         if qty < min_order_qty:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Minimum order quantity for {product.name} is {product.min_order}"
+                detail=f"Minimum order quantity for {product.name} is {min_order_qty}"
             )
         
         # Numeric columns are usually Decimal already; keep math in Decimal.

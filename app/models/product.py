@@ -20,6 +20,11 @@ class Product(Base):
     mrp = Column(Numeric(10, 2), nullable=False)  # Maximum Retail Price
     selling_price = Column(Numeric(10, 2), nullable=False)  # Selling Price
     commission_cost = Column(Numeric(10, 2), default=0, nullable=False)  # Admin-added per-product commission
+    # Optional alternate sell prices (mobile user picks unit / set / remaining).
+    set_selling_price = Column(Numeric(10, 2), nullable=True)
+    set_mrp = Column(Numeric(10, 2), nullable=True)
+    remaining_selling_price = Column(Numeric(10, 2), nullable=True)
+    remaining_mrp = Column(Numeric(10, 2), nullable=True)
     stock_quantity = Column(Integer, default=0, nullable=False)
     min_order_quantity = Column(Integer, default=1, nullable=False)
     unit = Column(String(50), nullable=False)
