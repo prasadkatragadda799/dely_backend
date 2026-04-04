@@ -25,6 +25,7 @@ python-dotenv==1.0.0
 email-validator==2.1.0
 requests==2.31.0
 python-dateutil==2.8.2
+openpyxl==3.1.2
 
 # Optional: Redis for caching
 # redis==5.0.1
