@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.api.v1.products import _resolve_division_id
 from app.api.deps import get_current_user
 from app.schemas.cart import CartItemAdd, CartItemUpdate, CartResponse, CartItemResponse, CartSummary
 from app.schemas.common import ResponseModel
@@ -16,20 +17,44 @@ router = APIRouter()
 
 @router.get("", response_model=ResponseModel)
 def get_cart(
-    division_slug: Optional[str] = Query(None, description="Show cart for this division only (e.g. kitchen). Omit for all items."),
+    division_slug: Optional[str] = Query(
+        None,
+        description="Filter cart lines: 'fmcg'/'default'/'grocery' = grocery (NULL or default division id); "
+        "'kitchen'/'home'/'homeKitchen' = kitchen/home division. Omit for all items.",
+    ),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's cart. Optionally filter by division (e.g. Kitchen) for tab-specific cart."""
-    from app.models.division import Division
+    """Get user's cart. When division_slug is set, return only lines for that vertical (mobile tabs)."""
     cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
-    if division_slug and division_slug != "default":
-        div = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
-        if div:
-            cart_items = [c for c in cart_items if c.division_id == str(div.id)]
+    division_filtered = False
+
+    if division_slug:
+        division_filtered = True
+        slug = division_slug.strip().lower()
+        if slug in ("fmcg", "default", "grocery"):
+            default_id = _resolve_division_id(db, "default")
+            if default_id:
+                cart_items = [
+                    c
+                    for c in cart_items
+                    if c.division_id is None or str(c.division_id) == default_id
+                ]
+            else:
+                cart_items = [c for c in cart_items if c.division_id is None]
+        elif slug in ("homekitchen", "kitchen", "home"):
+            div_id = _resolve_division_id(db, "kitchen") or _resolve_division_id(db, "home")
+            if div_id is not None:
+                cart_items = [c for c in cart_items if c.division_id == div_id]
+            else:
+                cart_items = []
         else:
-            cart_items = []
-    
+            div_id = _resolve_division_id(db, division_slug)
+            if div_id is not None:
+                cart_items = [c for c in cart_items if c.division_id == div_id]
+            else:
+                cart_items = []
+
     items = []
     for item in cart_items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
@@ -73,7 +98,11 @@ def get_cart(
                 "updated_at": item.updated_at.isoformat() if item.updated_at else None
             })
     
-    summary_data = get_cart_summary_for_division(db, current_user.id, [str(c.product_id) for c in cart_items]) if division_slug else get_cart_summary(db, current_user.id)
+    summary_data = (
+        get_cart_summary_for_division(db, current_user.id, [str(c.product_id) for c in cart_items])
+        if division_filtered
+        else get_cart_summary(db, current_user.id)
+    )
     summary = CartSummary(**summary_data)
 
     return ResponseModel(
@@ -104,11 +133,6 @@ def add_to_cart(
         raise HTTPException(status_code=400, detail="Insufficient stock")
 
     min_order = product.min_order_quantity if product.min_order_quantity else (product.min_order if hasattr(product, 'min_order') and product.min_order else 1)
-    if item_data.quantity < min_order:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Minimum order quantity is {min_order}"
-        )
 
     product_division_id = str(product.division_id) if product.division_id else None
 
@@ -118,10 +142,23 @@ def add_to_cart(
     ).first()
 
     if existing_item:
+        if item_data.quantity < 1:
+            raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+        new_line_qty = existing_item.quantity + item_data.quantity
+        if new_line_qty < min_order:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum order quantity is {min_order}"
+            )
         existing_item.quantity += item_data.quantity
         db.commit()
         db.refresh(existing_item)
     else:
+        if item_data.quantity < min_order:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum order quantity is {min_order}"
+            )
         cart_item = Cart(
             user_id=str(current_user.id),
             product_id=str(item_data.product_id),
