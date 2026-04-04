@@ -1,6 +1,8 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Form, File, UploadFile
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, model_validator
 from app.database import get_db
@@ -23,65 +25,201 @@ class RefreshTokenRequest(BaseModel):
 router = APIRouter()
 
 
+def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> ResponseModel:
+    """Send 2Factor OTP after user row exists; delete user if OTP cannot be sent."""
+    if not settings.TWO_FACTOR_API_KEY:
+        print("[AUTH/register] TWO_FACTOR_API_KEY is not configured")
+        db.delete(user)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="TWO_FACTOR_API_KEY is not configured",
+        )
+
+    phone = (phone_raw or "").strip()
+    normalized = "".join(ch for ch in phone if ch.isdigit())
+    if len(normalized) < 10:
+        print(f"[AUTH/register] Invalid phone provided: {phone}")
+        db.delete(user)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+    print(f"[AUTH/register] Sending OTP to {normalized} (user={user.email})")
+    resp = requests.get(url, timeout=10)
+    data = resp.json() if resp.content else {}
+
+    if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
+        print(f"[AUTH/register] OTP send failed for {normalized}: {data}")
+        db.delete(user)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to send OTP",
+        )
+
+    request_id = str(data["Details"])
+    print(f"[AUTH/register] OTP sent request_id={request_id} to {normalized}")
+
+    return ResponseModel(
+        success=True,
+        data={
+            "request_id": request_id,
+            "user_id": str(user.id),
+            "phone": user.phone,
+        },
+        message="Registration successful. OTP sent.",
+    )
+
+
+async def _save_registration_upload(
+    file: Optional[UploadFile],
+    request: Request,
+    user_id: str,
+) -> Optional[str]:
+    """Persist one registration image under uploads/user_registration/{user_id}/."""
+    if file is None:
+        return None
+    from app.api.v1.admin_upload import validate_image_file, write_image_upload
+
+    file_ext, _ = validate_image_file(file)
+    content = await file.read()
+    if not content:
+        return None
+    return write_image_upload(content, file_ext, "user_registration", user_id, request)
+
+
 @router.post("/register", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user, then send OTP for verification."""
+    """Register a new user (JSON body), then send OTP for verification."""
     try:
         user = register_user(db, user_data)
-        
-        # Send OTP immediately after creating the user.
-        # NOTE: OTP verification is required before the user can login.
-        if not settings.TWO_FACTOR_API_KEY:
-            print("[AUTH/register] TWO_FACTOR_API_KEY is not configured")
-            # Avoid leaving an unusable user record behind.
-            db.delete(user)
-            db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="TWO_FACTOR_API_KEY is not configured",
-            )
-
-        phone = (user_data.phone or "").strip()
-        normalized = "".join(ch for ch in phone if ch.isdigit())
-        if len(normalized) < 10:
-            print(f"[AUTH/register] Invalid phone provided: {phone}")
-            db.delete(user)
-            db.commit()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
-
-        url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
-        print(f"[AUTH/register] Sending OTP to {normalized} (user={user.email})")
-        resp = requests.get(url, timeout=10)
-        data = resp.json() if resp.content else {}
-
-        if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
-            print(f"[AUTH/register] OTP send failed for {normalized}: {data}")
-            db.delete(user)
-            db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unable to send OTP",
-            )
-
-        request_id = str(data["Details"])
-        print(f"[AUTH/register] OTP sent request_id={request_id} to {normalized}")
-
-        return ResponseModel(
-            success=True,
-            data={
-                "request_id": request_id,
-                "user_id": str(user.id),
-                "phone": user.phone,
-            },
-            message="Registration successful. OTP sent.",
-        )
+        return _finalize_registration_otp(db, user, user_data.phone)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=str(e),
         )
+
+
+@router.post("/register/multipart", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
+async def register_multipart(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    business_name: str = Form(...),
+    gst_number: Optional[str] = Form(None),
+    fssai_number: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    state: Optional[str] = Form(None),
+    pincode: Optional[str] = Form(None),
+    address_json: Optional[str] = Form(None),
+    gst_certificate: Optional[UploadFile] = File(None),
+    fssai_license: Optional[UploadFile] = File(None),
+    udyam_registration: Optional[UploadFile] = File(None),
+    trade_certificate: Optional[UploadFile] = File(None),
+    shop_photo: Optional[UploadFile] = File(None),
+    user_id_document: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Register with certificate images as multipart/form-data.
+    Saves files to disk and stores public URLs on the user row (same as product uploads).
+    """
+    address = None
+    if address_json and str(address_json).strip():
+        try:
+            address = json.loads(address_json)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid address_json")
+
+    user_data = UserCreate(
+        name=name.strip(),
+        email=email.strip(),
+        phone=phone.strip(),
+        business_name=business_name.strip(),
+        password=password,
+        confirm_password=confirm_password,
+        gst_number=(gst_number or "").strip() or None,
+        fssai_number=(fssai_number or "").strip() or None,
+        gst_certificate=None,
+        fssai_license=None,
+        udyam_registration=None,
+        trade_certificate=None,
+        city=(city or "").strip() or None,
+        state=(state or "").strip() or None,
+        pincode=(pincode or "").strip() or None,
+        address=address,
+    )
+
+    try:
+        user = register_user(db, user_data)
+        uid = str(user.id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    try:
+        if gst_certificate:
+            url = await _save_registration_upload(gst_certificate, request, uid)
+            if url:
+                user.gst_certificate = url
+        if fssai_license:
+            url = await _save_registration_upload(fssai_license, request, uid)
+            if url:
+                user.fssai_license = url
+        if udyam_registration:
+            url = await _save_registration_upload(udyam_registration, request, uid)
+            if url:
+                user.udyam_registration = url
+        if trade_certificate:
+            url = await _save_registration_upload(trade_certificate, request, uid)
+            if url:
+                user.trade_certificate = url
+        if shop_photo:
+            url = await _save_registration_upload(shop_photo, request, uid)
+            if url:
+                user.shop_photo_url = url
+        if user_id_document:
+            url = await _save_registration_upload(user_id_document, request, uid)
+            if url:
+                user.user_id_document_url = url
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except HTTPException:
+        u = db.query(User).filter(User.id == uid).first()
+        if u:
+            db.delete(u)
+            db.commit()
+        raise
+    except Exception as e:
+        u = db.query(User).filter(User.id == uid).first()
+        if u:
+            db.delete(u)
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+    try:
+        return _finalize_registration_otp(db, user, user_data.phone)
+    except HTTPException:
+        u = db.query(User).filter(User.id == uid).first()
+        if u:
+            db.delete(u)
+            db.commit()
+        raise
 
 
 @router.post("/login", response_model=ResponseModel)

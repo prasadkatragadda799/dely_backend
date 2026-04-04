@@ -22,69 +22,91 @@ ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE  # 10MB default
 
 
+def _extension_from_content_type(content_type: Optional[str]) -> str:
+    if not content_type:
+        return ""
+    c = content_type.lower()
+    if "jpeg" in c or "jpg" in c:
+        return ".jpg"
+    if "png" in c:
+        return ".png"
+    if "webp" in c:
+        return ".webp"
+    if "gif" in c:
+        return ".gif"
+    return ""
+
+
 def validate_image_file(file: UploadFile) -> tuple[str, str]:
-    """Validate and get file extension"""
-    # Get file extension
-    file_ext = Path(file.filename).suffix.lower() if file.filename else ''
-    
+    """Validate and get file extension (mobile clients often omit filename)."""
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if not file_ext:
+        file_ext = _extension_from_content_type(file.content_type)
+    if file_ext not in ALLOWED_IMAGE_EXTENSIONS:
+        file_ext = ".jpg"
     if file_ext not in ALLOWED_IMAGE_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}"
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}",
         )
-    
-    return file_ext, file.filename or 'image'
+    return file_ext, file.filename or "image"
 
 
-def save_uploaded_file(file: UploadFile, upload_type: str, entity_id: Optional[UUID] = None, request: Optional[Request] = None) -> str:
-    """Save uploaded file and return URL"""
-    # Validate file
-    file_ext, filename = validate_image_file(file)
-    
-    # Read file content
-    content = file.file.read()
-    
-    # Check file size
+def write_image_upload(
+    content: bytes,
+    file_ext: str,
+    upload_type: str,
+    entity_id: Optional[str],
+    request: Optional[Request],
+) -> str:
+    """Write validated image bytes to disk and return public URL."""
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File size exceeds maximum allowed size of {MAX_FILE_SIZE / 1024 / 1024}MB"
+            detail=f"File size exceeds maximum allowed size of {MAX_FILE_SIZE / 1024 / 1024}MB",
         )
-    
-    # Generate unique filename
     unique_filename = f"{uuid.uuid4()}{file_ext}"
-    
-    # Create upload directory structure
     if entity_id:
-        upload_dir = Path(settings.UPLOAD_DIR) / upload_type / str(entity_id)
+        upload_dir = Path(settings.UPLOAD_DIR) / upload_type / entity_id
     else:
         upload_dir = Path(settings.UPLOAD_DIR) / upload_type
-    
     upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save file
     file_path = upload_dir / unique_filename
-    with open(file_path, 'wb') as f:
+    with open(file_path, "wb") as f:
         f.write(content)
-    
-    # Generate URL
-    # In development, use request base URL. In production, use CDN
+
     if settings.CDN_BASE_URL:
-        # Production: use CDN URL
         base_url = settings.CDN_BASE_URL
     elif request:
-        # Development: use request base URL
-        base_url = str(request.base_url).rstrip('/')
+        base_url = str(request.base_url).rstrip("/")
     else:
-        # Fallback: use localhost
         base_url = "http://localhost:8000"
-    
+
     if entity_id:
         url = f"{base_url}/uploads/{upload_type}/{entity_id}/{unique_filename}"
     else:
         url = f"{base_url}/uploads/{upload_type}/{unique_filename}"
-    
     return url
+
+
+def save_uploaded_file(file: UploadFile, upload_type: str, entity_id: Optional[UUID] = None, request: Optional[Request] = None) -> str:
+    """Save uploaded file and return URL"""
+    file_ext, _ = validate_image_file(file)
+    content = file.file.read()
+    eid = str(entity_id) if entity_id else None
+    return write_image_upload(content, file_ext, upload_type, eid, request)
+
+
+async def save_uploaded_uploadfile(
+    file: UploadFile,
+    upload_type: str,
+    entity_id: Optional[str],
+    request: Request,
+) -> str:
+    """Async variant for multipart routes (reads UploadFile then persists)."""
+    file_ext, _ = validate_image_file(file)
+    content = await file.read()
+    return write_image_upload(content, file_ext, upload_type, entity_id, request)
 
 
 @router.post("/image", response_model=ResponseModel)

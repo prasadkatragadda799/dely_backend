@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, TypeDecorator
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, TypeDecorator, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 import uuid
@@ -55,10 +55,13 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     business_name = Column(String(255), nullable=False)
     gst_number = Column(String(15), nullable=True)
-    gst_certificate = Column(String(255), nullable=True)
-    fssai_license = Column(String(255), nullable=True)
-    udyam_registration = Column(String(255), nullable=True)
-    trade_certificate = Column(String(255), nullable=True)
+    gst_certificate = Column(Text, nullable=True)
+    fssai_license = Column(Text, nullable=True)
+    udyam_registration = Column(Text, nullable=True)
+    trade_certificate = Column(Text, nullable=True)
+    # Registration uploads (public URLs after multipart save)
+    shop_photo_url = Column(Text, nullable=True)
+    user_id_document_url = Column(Text, nullable=True)
     # New field: 14-digit FSSAI license number (stored as text)
     fssai_number = Column(String(14), nullable=True)
     # Legacy field (kept nullable for backward compatibility)

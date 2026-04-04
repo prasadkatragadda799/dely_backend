@@ -6,6 +6,7 @@ from app.utils.security import get_password_hash, verify_password, create_access
 from datetime import timedelta, datetime
 from app.config import settings
 import uuid
+import re
 
 
 def register_user(db: Session, user_data: UserCreate) -> User:
@@ -43,7 +44,14 @@ def register_user(db: Session, user_data: UserCreate) -> User:
     
     # Import KYCStatus
     from app.models.user import KYCStatus
-    
+
+    fssai_digits = None
+    raw_fssai = getattr(user_data, "fssai_number", None)
+    if raw_fssai:
+        digits = re.sub(r"\D", "", str(raw_fssai).strip())
+        if len(digits) == 14:
+            fssai_digits = digits
+
     # Create user with kyc_status = "not_verified"
     user = User(
         name=user_data.name,
@@ -56,6 +64,7 @@ def register_user(db: Session, user_data: UserCreate) -> User:
         fssai_license=user_data.fssai_license,
         udyam_registration=user_data.udyam_registration,
         trade_certificate=user_data.trade_certificate,
+        fssai_number=fssai_digits,
         address=address,
         city=user_data.city,
         state=user_data.state,

@@ -23,6 +23,8 @@ class UserCreate(UserBase):
     city: Optional[str] = None
     state: Optional[str] = None
     pincode: Optional[str] = None
+    # 14-digit FSSAI license number (mobile sends as FMCG number)
+    fssai_number: Optional[str] = None
 
 
 class UserUpdate(BaseModel):

@@ -91,7 +91,7 @@ def add_to_cart(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Add item to cart. Cart can only contain items from one division (Grocery or Kitchen)."""
+    """Add item to cart. Items may be from any division; each line stores its product's division."""
     product = db.query(Product).filter(Product.id == str(item_data.product_id)).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -111,16 +111,6 @@ def add_to_cart(
         )
 
     product_division_id = str(product.division_id) if product.division_id else None
-    existing_cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
-    if existing_cart_items:
-        first_item = existing_cart_items[0]
-        first_product = db.query(Product).filter(Product.id == str(first_item.product_id)).first()
-        existing_division_id = (first_item.division_id or (str(first_product.division_id) if first_product and first_product.division_id else None))
-        if existing_division_id != product_division_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Cart can only contain items from one division (Grocery or Kitchen). Clear cart or switch tab to add from the other."
-            )
 
     existing_item = db.query(Cart).filter(
         Cart.user_id == str(current_user.id),
