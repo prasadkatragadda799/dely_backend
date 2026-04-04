@@ -28,6 +28,39 @@ import requests
 router = APIRouter()
 
 
+def _is_non_public_kyc_uri(value: Optional[str]) -> bool:
+    """True for empty strings and mobile-local URIs that browsers cannot load."""
+    if value is None:
+        return True
+    v = str(value).strip()
+    if not v:
+        return True
+    low = v.lower()
+    if low.startswith("file:"):
+        return True
+    if low.startswith("content:"):
+        return True
+    if low.startswith("blob:"):
+        return True
+    if low.startswith("ph://") or low.startswith("phassets://"):
+        return True
+    if low.startswith("android.resource:"):
+        return True
+    if low.startswith("assets-library:"):
+        return True
+    return False
+
+
+def _pick_public_url(*candidates: Optional[str]) -> Optional[str]:
+    for c in candidates:
+        if c is None:
+            continue
+        s = str(c).strip()
+        if s and not _is_non_public_kyc_uri(s):
+            return s
+    return None
+
+
 @router.post("/sync-user-statuses", response_model=ResponseModel)
 async def sync_user_kyc_statuses(
     admin: Admin = Depends(require_manager_or_above),
@@ -204,7 +237,24 @@ async def list_kyc_submissions(
             "rejectionReason": None,  # KYC model doesn't have rejection_reason field
             "rejection_reason": None,
             "verifiedBy": str(user.kyc_verified_by) if user.kyc_verified_by else None,
-            "verified_by": str(user.kyc_verified_by) if user.kyc_verified_by else None
+            "verified_by": str(user.kyc_verified_by) if user.kyc_verified_by else None,
+            # Effective image URLs: ignore mobile-local KYC payload URIs; prefer registration uploads on User.
+            "shopImageUrl": _pick_public_url(
+                getattr(kyc, "shop_image_url", None),
+                getattr(user, "shop_photo_url", None),
+            ),
+            "shop_image_url": _pick_public_url(
+                getattr(kyc, "shop_image_url", None),
+                getattr(user, "shop_photo_url", None),
+            ),
+            "fssaiLicenseImageUrl": _pick_public_url(
+                getattr(kyc, "fssai_license_image_url", None),
+                getattr(user, "fssai_license", None),
+            ),
+            "fssai_license_image_url": _pick_public_url(
+                getattr(kyc, "fssai_license_image_url", None),
+                getattr(user, "fssai_license", None),
+            ),
         }
         
         # Add rejection info if status is rejected
@@ -312,11 +362,46 @@ async def get_kyc_by_user_id(
         "verified_by": str(user.kyc_verified_by) if hasattr(user, 'kyc_verified_by') and user.kyc_verified_by else None
     }
 
-    # Include KYC image URLs (for profile modal / quick preview)
-    kyc_data["shopImageUrl"] = kyc.shop_image_url
-    kyc_data["shop_image_url"] = kyc.shop_image_url
-    kyc_data["fssaiLicenseImageUrl"] = kyc.fssai_license_image_url
-    kyc_data["fssai_license_image_url"] = kyc.fssai_license_image_url
+    # Browser-loadable image URLs (skip file:// from mobile KYC submit; fall back to registration uploads on User).
+    shop_eff = _pick_public_url(
+        getattr(kyc, "shop_image_url", None),
+        getattr(user, "shop_photo_url", None),
+    )
+    fssai_img_eff = _pick_public_url(
+        getattr(kyc, "fssai_license_image_url", None),
+        getattr(user, "fssai_license", None),
+    )
+    kyc_data["shopImageUrl"] = shop_eff
+    kyc_data["shop_image_url"] = shop_eff
+    kyc_data["fssaiLicenseImageUrl"] = fssai_img_eff
+    kyc_data["fssai_license_image_url"] = fssai_img_eff
+
+    addr = kyc.address if isinstance(kyc.address, dict) else {}
+    kyc_data["address"] = addr
+    kyc_data["kycAddress"] = addr
+    kyc_data["userCity"] = user.city
+    kyc_data["user_city"] = user.city
+    kyc_data["userState"] = user.state
+    kyc_data["user_state"] = user.state
+    kyc_data["userPincode"] = user.pincode
+    kyc_data["user_pincode"] = user.pincode
+    kyc_data["userAddressJson"] = user.address
+    kyc_data["user_address"] = user.address
+
+    kyc_data["registrationDocuments"] = {
+        "gstCertificate": _pick_public_url(getattr(user, "gst_certificate", None)),
+        "gst_certificate": _pick_public_url(getattr(user, "gst_certificate", None)),
+        "fssaiLicense": _pick_public_url(getattr(user, "fssai_license", None)),
+        "fssai_license": _pick_public_url(getattr(user, "fssai_license", None)),
+        "udyamRegistration": _pick_public_url(getattr(user, "udyam_registration", None)),
+        "udyam_registration": _pick_public_url(getattr(user, "udyam_registration", None)),
+        "tradeCertificate": _pick_public_url(getattr(user, "trade_certificate", None)),
+        "trade_certificate": _pick_public_url(getattr(user, "trade_certificate", None)),
+        "shopPhoto": _pick_public_url(getattr(user, "shop_photo_url", None)),
+        "shop_photo_url": _pick_public_url(getattr(user, "shop_photo_url", None)),
+        "userIdDocument": _pick_public_url(getattr(user, "user_id_document_url", None)),
+        "user_id_document_url": _pick_public_url(getattr(user, "user_id_document_url", None)),
+    }
     
     # Add rejection info if status is rejected
     if kyc.status == KYCStatus.REJECTED:
@@ -406,7 +491,41 @@ async def get_kyc_details(
         "verifiedBy": str(user.kyc_verified_by) if user.kyc_verified_by else None,
         "verified_by": str(user.kyc_verified_by) if user.kyc_verified_by else None,
         "address": address,
-        "additionalInfo": additional_info
+        "additionalInfo": additional_info,
+    }
+
+    shop_eff = _pick_public_url(
+        getattr(kyc, "shop_image_url", None),
+        getattr(user, "shop_photo_url", None),
+    )
+    fssai_img_eff = _pick_public_url(
+        getattr(kyc, "fssai_license_image_url", None),
+        getattr(user, "fssai_license", None),
+    )
+    kyc_data["shopImageUrl"] = shop_eff
+    kyc_data["shop_image_url"] = shop_eff
+    kyc_data["fssaiLicenseImageUrl"] = fssai_img_eff
+    kyc_data["fssai_license_image_url"] = fssai_img_eff
+    kyc_data["userCity"] = user.city
+    kyc_data["user_city"] = user.city
+    kyc_data["userState"] = user.state
+    kyc_data["user_state"] = user.state
+    kyc_data["userPincode"] = user.pincode
+    kyc_data["user_pincode"] = user.pincode
+    kyc_data["userAddressJson"] = user.address
+    kyc_data["registrationDocuments"] = {
+        "gstCertificate": _pick_public_url(getattr(user, "gst_certificate", None)),
+        "gst_certificate": _pick_public_url(getattr(user, "gst_certificate", None)),
+        "fssaiLicense": _pick_public_url(getattr(user, "fssai_license", None)),
+        "fssai_license": _pick_public_url(getattr(user, "fssai_license", None)),
+        "udyamRegistration": _pick_public_url(getattr(user, "udyam_registration", None)),
+        "udyam_registration": _pick_public_url(getattr(user, "udyam_registration", None)),
+        "tradeCertificate": _pick_public_url(getattr(user, "trade_certificate", None)),
+        "trade_certificate": _pick_public_url(getattr(user, "trade_certificate", None)),
+        "shopPhoto": _pick_public_url(getattr(user, "shop_photo_url", None)),
+        "shop_photo_url": _pick_public_url(getattr(user, "shop_photo_url", None)),
+        "userIdDocument": _pick_public_url(getattr(user, "user_id_document_url", None)),
+        "user_id_document_url": _pick_public_url(getattr(user, "user_id_document_url", None)),
     }
     
     return ResponseModel(
@@ -621,6 +740,9 @@ async def get_kyc_documents(
     # Format documents
     document_list = []
     for doc in documents:
+        pub_url = _pick_public_url(getattr(doc, "document_url", None))
+        if not pub_url:
+            continue
         # Map document types
         doc_type_map = {
             "gst_certificate": "GST Certificate",
@@ -634,27 +756,35 @@ async def get_kyc_documents(
             "id": str(doc.id),
             "type": doc.document_type,
             "name": doc_name,
-            "url": doc.document_url,
+            "url": pub_url,
             "uploadedAt": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
             "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None
         })
 
-    # Include dedicated image URL fields from the KYC record if present
-    if getattr(kyc, "shop_image_url", None):
+    # Dedicated KYC row URLs (prefer browser-accessible registration URLs when mobile stored file://).
+    shop_doc_url = _pick_public_url(
+        getattr(kyc, "shop_image_url", None),
+        getattr(user, "shop_photo_url", None),
+    )
+    if shop_doc_url:
         document_list.append({
             "id": "kyc-shop_image",
             "type": "shop_image",
             "name": "Shop Image",
-            "url": kyc.shop_image_url,
+            "url": shop_doc_url,
             "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
             "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
         })
-    if getattr(kyc, "fssai_license_image_url", None):
+    fssai_doc_url = _pick_public_url(
+        getattr(kyc, "fssai_license_image_url", None),
+        getattr(user, "fssai_license", None),
+    )
+    if fssai_doc_url:
         document_list.append({
             "id": "kyc-fssai_license_image",
             "type": "fssai_license_image",
             "name": "FSSAI License Image",
-            "url": kyc.fssai_license_image_url,
+            "url": fssai_doc_url,
             "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
             "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
         })
@@ -663,11 +793,14 @@ async def get_kyc_documents(
     if kyc.documents and isinstance(kyc.documents, dict):
         for doc_key, doc_url in kyc.documents.items():
             if isinstance(doc_url, str) and doc_url:
+                pub = _pick_public_url(doc_url)
+                if not pub:
+                    continue
                 document_list.append({
                     "id": f"kyc-{doc_key}",
                     "type": doc_key,
                     "name": doc_key.replace("_", " ").title(),
-                    "url": doc_url,
+                    "url": pub,
                     "uploadedAt": kyc.created_at.isoformat() if kyc.created_at else None,
                     "uploaded_at": kyc.created_at.isoformat() if kyc.created_at else None
                 })
