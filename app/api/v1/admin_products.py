@@ -14,6 +14,9 @@ from app.schemas.admin_product import (
 )
 from app.schemas.common import ResponseModel
 from app.models.product import Product
+from app.models.cart import Cart
+from app.models.wishlist import Wishlist
+from app.models.order import OrderItem
 from app.models.brand import Brand
 from app.models.company import Company
 from app.models.category import Category
@@ -31,6 +34,7 @@ import os
 import logging
 from datetime import datetime, date, timedelta
 import json
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -883,14 +887,37 @@ async def delete_product(
     product = db.query(Product).filter(Product.id.in_([product_id_str, product_id_no_dashes])).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     product_name = product.name
-    db.delete(product)
-    db.commit()
-    
-    # Log activity
+    canonical_id = str(product.id)
+    id_variants = list(
+        {canonical_id, canonical_id.replace("-", ""), product_id_str, product_id_no_dashes}
+    )
+    id_variants = [x for x in id_variants if x]
+
     try:
-        # entity_id in admin activity log expects a UUID; convert if possible
+        # Carts / wishlists reference products with ON DELETE RESTRICT in older DBs → 500 on delete.
+        db.query(Cart).filter(Cart.product_id.in_(id_variants)).delete(synchronize_session=False)
+        db.query(Wishlist).filter(Wishlist.product_id.in_(id_variants)).delete(synchronize_session=False)
+        # Order lines keep price/qty; drop product link (requires nullable product_id — see migration o1p2q3r4s5t6).
+        db.query(OrderItem).filter(OrderItem.product_id.in_(id_variants)).update(
+            {OrderItem.product_id: None},
+            synchronize_session=False,
+        )
+        db.delete(product)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        logger.exception("delete_product integrity error for %s", product_id_str)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot delete this product: it is still referenced (e.g. past orders with a non-nullable "
+                "product link). Mark it unavailable instead, or apply the latest database migrations and retry."
+            ),
+        ) from exc
+
+    try:
         entity_id_uuid = UUID(product_id_str)
     except ValueError:
         entity_id_uuid = None
@@ -902,9 +929,9 @@ async def delete_product(
         entity_type="product",
         entity_id=entity_id_uuid,
         details={"name": product_name},
-        request=request
+        request=request,
     )
-    
+
     return ResponseModel(
         success=True,
         message="Product deleted successfully"
