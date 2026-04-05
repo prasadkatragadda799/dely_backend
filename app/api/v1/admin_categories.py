@@ -4,6 +4,7 @@ Admin Categories Management Endpoints
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 from uuid import UUID
 import logging
@@ -186,10 +187,14 @@ async def create_category(
     db: Session = Depends(get_db)
 ):
     """Create a new category or subcategory"""
+    parent_id_str_for_row: Optional[str] = (
+        str(category_data.parent_id) if category_data.parent_id is not None else None
+    )
+
     # Check if category name already exists at the same parent level
     existing = db.query(Category).filter(
         Category.name == category_data.name,
-        Category.parent_id == category_data.parent_id
+        Category.parent_id == parent_id_str_for_row,
     ).first()
     
     if existing:
@@ -201,8 +206,8 @@ async def create_category(
     # Generate slug if not provided
     slug = generate_slug(category_data.name)
     
-    # Ensure slug is unique
-    existing_slugs = [c.slug for c in db.query(Category.slug).all()]
+    # Ensure slug is unique (SQLAlchemy 2: query(Model.col).all() returns Row — use row[0])
+    existing_slugs = [row[0] for row in db.query(Category.slug).all()]
     slug = make_unique_slug(slug, existing_slugs)
     
     # Validate parent_id if provided
@@ -219,7 +224,7 @@ async def create_category(
         name=category_data.name,
         slug=slug,
         description=category_data.description,
-        parent_id=category_data.parent_id,
+        parent_id=parent_id_str_for_row,
         division_id=str(category_data.division_id) if category_data.division_id else None,
         icon=category_data.icon,
         color=category_data.color,
@@ -230,8 +235,16 @@ async def create_category(
     )
     
     db.add(category)
-    db.commit()
-    db.refresh(category)
+    try:
+        db.commit()
+        db.refresh(category)
+    except IntegrityError as e:
+        db.rollback()
+        logger.exception("create_category integrity error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not create category (check parent/division IDs and uniqueness).",
+        ) from e
     
     # Log activity
     # Convert category.id (String) to UUID for entity_id

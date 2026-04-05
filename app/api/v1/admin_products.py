@@ -410,7 +410,7 @@ async def create_product(
     product_slug = slug or generate_slug(name)
     
     # Ensure slug is unique
-    existing_slugs = [p.slug for p in db.query(Product.slug).all()]
+    existing_slugs = [row[0] for row in db.query(Product.slug).all()]
     product_slug = make_unique_slug(product_slug, existing_slugs)
     
     # Create product
@@ -825,8 +825,8 @@ async def update_product(
     # Slug handling
     if slug is not None and slug != "":
         existing_slugs = [
-            p.slug
-            for p in db.query(Product.slug)
+            row[0]
+            for row in db.query(Product.slug)
             .filter(~(Product.id.in_([product_id_str, product_id_no_dashes])))
             .all()
         ]

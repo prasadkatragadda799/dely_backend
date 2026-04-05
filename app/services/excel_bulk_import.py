@@ -404,7 +404,7 @@ def import_categories(db: Session, rows: List[Dict[str, Any]]) -> Tuple[int, Lis
 
         division_id = _find_division_by_slug(db, _cell_str(row.get("division_slug")))
         slug_base = generate_slug(name)
-        existing_slugs = [c.slug for c in db.query(Category.slug).all()]
+        existing_slugs = [row[0] for row in db.query(Category.slug).all()]
         slug = make_unique_slug(slug_base, existing_slugs)
         display_order = _cell_int(row.get("display_order"), 0) or 0
         is_active = _parse_bool(row.get("is_active"), True)
@@ -597,7 +597,7 @@ def import_products(db: Session, rows: List[Dict[str, Any]], created_by_admin_id
         meta_description = _cell_str(row.get("meta_description"))
 
         product_slug = generate_slug(name)
-        existing_slugs = [p.slug for p in db.query(Product.slug).all()]
+        existing_slugs = [row[0] for row in db.query(Product.slug).all()]
         product_slug = make_unique_slug(product_slug, existing_slugs)
 
         product = Product(
