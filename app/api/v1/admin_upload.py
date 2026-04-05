@@ -1,7 +1,7 @@
 """
 Admin File Upload Endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 from uuid import UUID
@@ -14,6 +14,7 @@ from app.api.admin_deps import require_manager_or_above, get_current_active_admi
 from app.utils.admin_activity import log_admin_activity
 from app.config import settings
 from app.models.admin import Admin
+from app.models.category import Category
 
 router = APIRouter()
 
@@ -113,16 +114,16 @@ async def save_uploaded_uploadfile(
 async def upload_image(
     request: Request,
     file: UploadFile = File(...),
-    upload_type: str = "general",
-    entity_id: Optional[UUID] = None,
+    upload_type: str = Form(default="general"),
+    entity_id: Optional[str] = Form(default=None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """
-    Upload an image file
-    
+    Upload an image file (multipart form fields: file, upload_type, entity_id).
+
     upload_type: 'product', 'company', 'brand', 'offer', 'category', 'general'
-    entity_id: Optional ID of the entity this image belongs to
+    entity_id: Optional ID of the entity (required for category/company/brand image DB updates where implemented)
     """
     # Validate upload type
     valid_types = ['product', 'company', 'brand', 'offer', 'category', 'general']
@@ -131,36 +132,50 @@ async def upload_image(
             status_code=400,
             detail=f"Invalid upload_type. Allowed: {', '.join(valid_types)}"
         )
-    
+
+    eid_clean = entity_id.strip() if entity_id else None
+
     try:
-        # Save file
-        image_url = save_uploaded_file(file, upload_type, entity_id, request)
-        
-        # Get file info
-        file_size = len(await file.read())
-        await file.seek(0)  # Reset file pointer
-        
-        # In production, you would:
-        # 1. Upload to cloud storage (S3, Cloudinary, etc.)
-        # 2. Generate thumbnails
-        # 3. Get image dimensions
-        
-        # For now, return basic info
+        file_ext, _ = validate_image_file(file)
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size exceeds maximum allowed size of {MAX_FILE_SIZE / 1024 / 1024}MB",
+            )
+        image_url = write_image_upload(content, file_ext, upload_type, eid_clean, request)
+        file_size = len(content)
+
+        if upload_type == "category" and eid_clean:
+            cat = db.query(Category).filter(Category.id == eid_clean).first()
+            if not cat:
+                raise HTTPException(status_code=404, detail="Category not found")
+            cat.image = image_url
+            db.add(cat)
+            db.commit()
+            db.refresh(cat)
+
+        entity_uuid: Optional[UUID] = None
+        if eid_clean:
+            try:
+                entity_uuid = UUID(eid_clean)
+            except ValueError:
+                entity_uuid = None
+
         response_data = {
             "url": image_url,
-            "thumbnailUrl": image_url,  # In production, generate actual thumbnail
+            "thumbnailUrl": image_url,
             "size": file_size,
-            "width": None,  # Would be extracted from image
-            "height": None  # Would be extracted from image
+            "width": None,
+            "height": None,
         }
-        
-        # Log activity
+
         log_admin_activity(
             db=db,
             admin_id=admin.id,
             action="image_uploaded",
             entity_type=upload_type,
-            entity_id=entity_id,
+            entity_id=entity_uuid,
             details={"filename": file.filename, "url": image_url},
             request=request
         )
@@ -184,8 +199,8 @@ async def upload_image(
 async def upload_multiple_images(
     request: Request,
     files: list[UploadFile] = File(...),
-    upload_type: str = "general",
-    entity_id: Optional[UUID] = None,
+    upload_type: str = Form(default="general"),
+    entity_id: Optional[str] = Form(default=None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -204,33 +219,39 @@ async def upload_multiple_images(
             detail=f"Invalid upload_type. Allowed: {', '.join(valid_types)}"
         )
     
+    eid_clean = entity_id.strip() if entity_id else None
+    entity_uuid: Optional[UUID] = None
+    if eid_clean:
+        try:
+            entity_uuid = UUID(eid_clean)
+        except ValueError:
+            entity_uuid = None
+
     uploaded_files = []
-    
+
     for file in files:
         try:
-            image_url = save_uploaded_file(file, upload_type, entity_id, request)
+            image_url = save_uploaded_file(file, upload_type, entity_uuid, request)
             uploaded_files.append({
                 "url": image_url,
                 "thumbnailUrl": image_url,
                 "filename": file.filename
             })
-        except Exception as e:
-            # Continue with other files if one fails
+        except Exception:
             continue
-    
+
     if not uploaded_files:
         raise HTTPException(
             status_code=400,
             detail="No files were uploaded successfully"
         )
-    
-    # Log activity
+
     log_admin_activity(
         db=db,
         admin_id=admin.id,
         action="images_uploaded",
         entity_type=upload_type,
-        entity_id=entity_id,
+        entity_id=entity_uuid,
         details={"count": len(uploaded_files)},
         request=request
     )
