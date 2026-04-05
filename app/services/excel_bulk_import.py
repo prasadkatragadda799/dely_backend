@@ -273,23 +273,25 @@ def import_brands(db: Session, rows: List[Dict[str, Any]]) -> Tuple[int, List[Di
         if not name:
             errors.append({"row": idx, "error": "name is required"})
             continue
-        company_id_str: Optional[str] = None
         cn = _cell_str(row.get("company_name"))
-        if cn:
-            comp = _find_company_by_name(db, cn)
-            if not comp:
-                errors.append({"row": idx, "error": f"Company not found: {cn}"})
-                continue
-            company_id_str = str(comp.id)
+        if not cn:
+            errors.append({"row": idx, "error": "company_name is required"})
+            continue
+        comp = _find_company_by_name(db, cn)
+        if not comp:
+            errors.append({"row": idx, "error": f"Company not found: {cn}"})
+            continue
+        company_id_str = str(comp.id)
 
-        category_id_str: Optional[str] = None
         catn = _cell_str(row.get("category_name"))
-        if catn:
-            cat = _find_category_by_name(db, catn)
-            if not cat:
-                errors.append({"row": idx, "error": f"Category not found: {catn}"})
-                continue
-            category_id_str = str(cat.id)
+        if not catn:
+            errors.append({"row": idx, "error": "category_name is required"})
+            continue
+        cat = _find_category_by_name(db, catn)
+        if not cat:
+            errors.append({"row": idx, "error": f"Category not found: {catn}"})
+            continue
+        category_id_str = str(cat.id)
 
         q = db.query(Brand).filter(func.lower(Brand.name) == name.lower())
         if company_id_str:

@@ -63,6 +63,7 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
         example = ["Dove", "Hindustan Unilever Ltd", "Bathing Bar"]
         filename = "brand_import_template.xlsx"
     else:
+        # Required: name, mrp, selling_price, unit. Optional: names or IDs, then other fields. No images.
         headers = [
             "name",
             "mrp",
@@ -71,6 +72,9 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
             "category_name",
             "brand_name",
             "company_name",
+            "category_id",
+            "brand_id",
+            "company_id",
             "division_slug",
             "stock_quantity",
             "min_order_quantity",
@@ -81,9 +85,6 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
             "is_featured",
             "is_available",
             "expiry_date",
-            "category_id",
-            "brand_id",
-            "company_id",
         ]
         example = [
             "Sample Product 100g",
@@ -94,6 +95,9 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
             "Dove",
             "Hindustan Unilever Ltd",
             "",
+            "",
+            "",
+            "",
             50,
             1,
             1,
@@ -102,9 +106,6 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
             "34011190",
             "false",
             "true",
-            "",
-            "",
-            "",
             "",
         ]
         filename = "product_import_template.xlsx"
