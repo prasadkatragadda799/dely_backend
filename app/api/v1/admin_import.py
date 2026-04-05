@@ -63,7 +63,7 @@ def _template_bytes(entity: ImportEntity) -> tuple[bytes, str]:
         example = ["Dove", "Hindustan Unilever Ltd", "Bathing Bar"]
         filename = "brand_import_template.xlsx"
     else:
-        # Required: name, mrp, selling_price, unit. Optional: names or IDs, then other fields. No images.
+        # Required: name, mrp, unit. selling_price optional (defaults to mrp). Optional: names or IDs, etc. No images.
         headers = [
             "name",
             "mrp",
@@ -148,7 +148,7 @@ async def upload_import(
         )
 
     try:
-        _, rows = xbi.parse_excel_rows(raw)
+        _, rows = xbi.parse_excel_rows(raw, import_entity=entity.value)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

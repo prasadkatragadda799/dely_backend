@@ -28,6 +28,167 @@ def _norm_header(val: Any) -> str:
     return s
 
 
+def _collapse_header_underscores(s: str) -> str:
+    """Normalize doubled underscores from multi-space headers, e.g. company__name_ -> company_name."""
+    if not s:
+        return ""
+    return re.sub(r"_+", "_", s).strip("_")
+
+
+def _map_product_column_header(norm: str) -> str:
+    """Map normalized Excel headers to canonical product import keys."""
+    if not norm:
+        return ""
+    n = _collapse_header_underscores(norm)
+    aliases: Dict[str, str] = {
+        "company_name": "company_name",
+        "company": "company_name",
+        "products": "products_line",
+        "product": "products_line",
+        "product_name": "name",
+        "name": "name",
+        "item": "name",
+        "item_name": "name",
+        "title": "name",
+        "vireyant": "variant_suffix",
+        "variant": "variant_suffix",
+        "flavour": "variant_suffix",
+        "flavor": "variant_suffix",
+        "mrp": "mrp",
+        "rsp": "selling_price",
+        "selling_price": "selling_price",
+        "sale_price": "selling_price",
+        "sp": "selling_price",
+        "price": "selling_price",
+        "size": "unit",
+        "pack": "unit",
+        "pack_size": "unit",
+        "uom": "unit",
+        "unit": "unit",
+        "qty": "stock_quantity",
+        "quantity": "stock_quantity",
+        "stock": "stock_quantity",
+        "stock_quantity": "stock_quantity",
+        "exp_date": "expiry_date",
+        "expiry": "expiry_date",
+        "expiry_date": "expiry_date",
+        "best_before": "expiry_date",
+        "mfg_date": "manufacturing_date",
+        "muf_date": "manufacturing_date",
+        "manufacturing_date": "manufacturing_date",
+    }
+    if n in aliases:
+        return aliases[n]
+    if "exp" in n and "date" in n:
+        return "expiry_date"
+    if ("muf" in n or "mfg" in n) and "date" in n:
+        return "manufacturing_date"
+    return n
+
+
+def _map_generic_import_header(norm: str) -> str:
+    """Map headers for companies / categories / brands imports."""
+    if not norm:
+        return ""
+    n = _collapse_header_underscores(norm)
+    aliases: Dict[str, str] = {
+        "name": "name",
+        "description": "description",
+        "company_name": "company_name",
+        "company": "company_name",
+        "category_name": "category_name",
+        "category": "category_name",
+        "parent_name": "parent_name",
+        "division_slug": "division_slug",
+        "display_order": "display_order",
+        "is_active": "is_active",
+        "icon": "icon",
+        "color": "color",
+        "meta_title": "meta_title",
+        "meta_description": "meta_description",
+    }
+    return aliases.get(n, n)
+
+
+def _score_product_header_row(norms: List[str]) -> int:
+    mapped = {_map_product_column_header(n) for n in norms if n}
+    mapped.discard("")
+    score = 0
+    if "mrp" in mapped:
+        score += 5
+    if "name" in mapped or "products_line" in mapped:
+        score += 3
+    if "company_name" in mapped:
+        score += 2
+    if "unit" in mapped:
+        score += 2
+    if "variant_suffix" in mapped:
+        score += 1
+    if "stock_quantity" in mapped:
+        score += 1
+    if "expiry_date" in mapped:
+        score += 1
+    if "selling_price" in mapped:
+        score += 1
+    return score
+
+
+def _score_non_product_header_row(norms: List[str], import_entity: str) -> int:
+    mapped = {_map_generic_import_header(n) for n in norms if n}
+    mapped.discard("")
+    score = 0
+    if "name" in mapped:
+        score += 5
+    if import_entity == "brands":
+        if "company_name" in mapped:
+            score += 3
+        if "category_name" in mapped:
+            score += 3
+    if "description" in mapped:
+        score += 1
+    if "parent_name" in mapped:
+        score += 2
+    return score
+
+
+def _detect_header_row_index(rows: List[Any], import_entity: Optional[str]) -> int:
+    """Pick header row when sheet has title rows above column labels."""
+    if import_entity is None or not rows:
+        return 0
+    limit = min(20, len(rows))
+    best_i = 0
+    best_s = -1
+    for i in range(limit):
+        norms = [_norm_header(c) for c in rows[i]]
+        if import_entity == "products":
+            s = _score_product_header_row(norms)
+        else:
+            s = _score_non_product_header_row(norms, import_entity)
+        if s > best_s:
+            best_s = s
+            best_i = i
+    if best_s <= 0:
+        return 0
+    return best_i
+
+
+def _product_import_display_name(row: Dict[str, Any]) -> Optional[str]:
+    """Single name column, or combine products_line + variant_suffix (common in retail listings)."""
+    n = _cell_str(row.get("name"))
+    if n:
+        return n
+    parts: List[str] = []
+    pl = _cell_str(row.get("products_line"))
+    vs = _cell_str(row.get("variant_suffix"))
+    if pl:
+        parts.append(pl)
+    if vs:
+        parts.append(vs)
+    if parts:
+        return " ".join(parts)
+    return None
+
+
 def _cell_str(val: Any) -> Optional[str]:
     if val is None:
         return None
@@ -72,25 +233,40 @@ def _parse_bool(val: Any, default: bool = True) -> bool:
     return default
 
 
-def parse_excel_rows(file_bytes: bytes) -> Tuple[List[str], List[Dict[str, Any]]]:
+def parse_excel_rows(
+    file_bytes: bytes,
+    *,
+    import_entity: Optional[str] = None,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
     from openpyxl import load_workbook
 
-    wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    # read_only=False so we can scan for header row then read body (files capped at ~5MB by API).
+    wb = load_workbook(io.BytesIO(file_bytes), read_only=False, data_only=True)
     try:
         ws = wb.active
-        rows_iter = ws.iter_rows(values_only=True)
-        header_row = next(rows_iter, None)
-        if not header_row:
+        all_rows = list(ws.iter_rows(values_only=True))
+        if not all_rows:
             return [], []
-        headers = [_norm_header(h) for h in header_row]
-        # drop trailing empty header names
-        while headers and not headers[-1]:
-            headers.pop()
+
+        header_idx = _detect_header_row_index(all_rows, import_entity)
+        raw_header = all_rows[header_idx]
+        norms = [_norm_header(h) for h in raw_header]
+        while norms and not norms[-1]:
+            norms.pop()
+
+        if import_entity == "products":
+            headers = [_map_product_column_header(n) for n in norms]
+        elif import_entity in ("companies", "categories", "brands"):
+            headers = [_map_generic_import_header(n) for n in norms]
+        else:
+            headers = norms
+
         out: List[Dict[str, Any]] = []
-        for row in rows_iter:
+        for row in all_rows[header_idx + 1 :]:
             if not row:
                 continue
-            if all(v is None or (isinstance(v, str) and not v.strip()) for v in row[: len(headers)]):
+            cells = [row[i] if i < len(row) else None for i in range(len(headers))]
+            if all(v is None or (isinstance(v, str) and not str(v).strip()) for v in cells):
                 continue
             d: Dict[str, Any] = {}
             for i, key in enumerate(headers):
@@ -328,7 +504,7 @@ def import_products(db: Session, rows: List[Dict[str, Any]], created_by_admin_id
     created = 0
     errors: List[Dict[str, Any]] = []
     for idx, row in enumerate(rows, start=2):
-        name = _cell_str(row.get("name"))
+        name = _product_import_display_name(row)
         if not name:
             errors.append({"row": idx, "error": "name is required"})
             continue
@@ -338,8 +514,7 @@ def import_products(db: Session, rows: List[Dict[str, Any]], created_by_admin_id
             errors.append({"row": idx, "error": "mrp must be a positive number"})
             continue
         if sp is None or sp <= 0:
-            errors.append({"row": idx, "error": "selling_price must be a positive number"})
-            continue
+            sp = mrp
         if sp > mrp:
             errors.append({"row": idx, "error": "selling_price cannot exceed mrp"})
             continue
