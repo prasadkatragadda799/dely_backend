@@ -27,22 +27,26 @@ logger = logging.getLogger(__name__)
 
 def get_category_product_count(db: Session, category_id: str, include_subcategories: bool = True) -> int:
     """Get product count for a category, including subcategories recursively"""
+    # Columns are VARCHAR(36); callers may pass UUID from path params — coerce for SQL compare.
+    cid = str(category_id) if category_id is not None else ""
+    if not cid:
+        return 0
     try:
         # Get direct products
         count = db.query(func.count(Product.id)).filter(
-            Product.category_id == category_id,
+            Product.category_id == cid,
             Product.is_available == True
         ).scalar() or 0
         
         if include_subcategories:
             # Get all subcategories recursively
-            subcategories = db.query(Category.id).filter(Category.parent_id == category_id).all()
+            subcategories = db.query(Category.id).filter(Category.parent_id == cid).all()
             for subcat in subcategories:
                 count += get_category_product_count(db, str(subcat.id), include_subcategories=True)
         
         return count
     except Exception as e:
-        logger.error(f"Error getting product count for category {category_id}: {str(e)}")
+        logger.error(f"Error getting product count for category {cid}: {str(e)}")
         return 0  # Return 0 on error to prevent breaking the entire request
 
 
@@ -132,8 +136,8 @@ async def get_category(
     # Get product count including subcategories
     product_count = get_category_product_count(db, category_id_str, include_subcategories=True)
     
-    # Get children
-    children = db.query(Category).filter(Category.parent_id == category_id).order_by(Category.display_order).all()
+    # Get children (parent_id column is string; compare with str id, not UUID type)
+    children = db.query(Category).filter(Category.parent_id == category_id_str).order_by(Category.display_order).all()
     children_data = []
     for c in children:
         child_count = get_category_product_count(db, c.id, include_subcategories=True)
@@ -358,6 +362,8 @@ async def update_category(
     for key, value in update_data.items():
         if key == "division_id" and value is not None:
             value = str(value)
+        if key == "parent_id" and value is not None:
+            value = str(value)
         if hasattr(category, key):
             setattr(category, key, value)
     
@@ -365,10 +371,10 @@ async def update_category(
     db.refresh(category)
     
     # Get product count
-    product_count = get_category_product_count(db, category_id, include_subcategories=True)
+    product_count = get_category_product_count(db, category_id_str, include_subcategories=True)
     
-    # Get children
-    children = db.query(Category).filter(Category.parent_id == category_id).order_by(Category.display_order).all()
+    # Get children (parent_id is VARCHAR; do not compare to UUID path param type)
+    children = db.query(Category).filter(Category.parent_id == category_id_str).order_by(Category.display_order).all()
     children_data = []
     for c in children:
         child_count = get_category_product_count(db, c.id, include_subcategories=True)
