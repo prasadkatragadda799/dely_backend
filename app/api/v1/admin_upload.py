@@ -22,15 +22,8 @@ router = APIRouter()
 ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 MAX_FILE_SIZE = settings.MAX_UPLOAD_SIZE  # 10MB default
 
-# Category list / app-style icons: square PNG/JPEG/WebP etc., typical store icon range
-CATEGORY_ICON_MIN_SIDE = 256
-CATEGORY_ICON_MAX_SIDE = 1024
-
-
-def validate_category_app_icon_image(content: bytes) -> Tuple[int, int]:
-    """
-    Category images are shown as app-style icons: square, 256–1024 px per side.
-    """
+def read_category_image_dimensions(content: bytes) -> Tuple[int, int]:
+    """Verify bytes are a decodable image and return (width, height). Any dimensions allowed."""
     try:
         from PIL import Image
     except ImportError as e:
@@ -48,19 +41,6 @@ def validate_category_app_icon_image(content: bytes) -> Tuple[int, int]:
             w, h = im.size
     except Exception as e:
         raise HTTPException(status_code=400, detail="Could not read image dimensions.") from e
-    if w != h:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Category image must be square (width and height must match). Got {w}×{h}px.",
-        )
-    if w < CATEGORY_ICON_MIN_SIDE or w > CATEGORY_ICON_MAX_SIDE:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Category image must be square between {CATEGORY_ICON_MIN_SIDE} and "
-                f"{CATEGORY_ICON_MAX_SIDE} pixels per side. Got {w}×{h}px."
-            ),
-        )
     return w, h
 
 
@@ -187,7 +167,7 @@ async def upload_image(
         icon_w: Optional[int] = None
         icon_h: Optional[int] = None
         if upload_type == "category":
-            icon_w, icon_h = validate_category_app_icon_image(content)
+            icon_w, icon_h = read_category_image_dimensions(content)
         image_url = write_image_upload(content, file_ext, upload_type, eid_clean, request)
         file_size = len(content)
 
