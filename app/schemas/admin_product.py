@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from uuid import UUID
 from decimal import Decimal
+from app.utils.packaging_label import format_variant_packaging_line
 
 
 class AdminProductCreate(BaseModel):
@@ -71,7 +72,9 @@ class ProductImageResponse(BaseModel):
 class AdminProductVariantResponse(BaseModel):
     id: UUID
     hsnCode: Optional[str] = None
+    packagingLabelType: Optional[str] = None
     setPieces: Optional[str] = None
+    packagingLabel: Optional[str] = None
     weight: Optional[str] = None
     mrp: Optional[Decimal] = None
     specialPrice: Optional[Decimal] = None
@@ -169,12 +172,17 @@ class AdminProductResponse(BaseModel):
         if hasattr(obj, "variants") and obj.variants:
             for v in obj.variants:
                 try:
+                    ptype = getattr(v, "packaging_label_type", None)
+                    set_pcs = getattr(v, "set_pcs", None)
+                    wgt = getattr(v, "weight", None)
                     variants.append(
                         AdminProductVariantResponse(
                             id=UUID(str(v.id)),
                             hsnCode=getattr(v, "hsn_code", None),
-                            setPieces=getattr(v, "set_pcs", None),
-                            weight=getattr(v, "weight", None),
+                            packagingLabelType=ptype,
+                            setPieces=set_pcs,
+                            packagingLabel=format_variant_packaging_line(ptype, set_pcs, wgt),
+                            weight=wgt,
                             mrp=getattr(v, "mrp", None),
                             specialPrice=getattr(v, "special_price", None),
                             freeItem=getattr(v, "free_item", None),

@@ -29,6 +29,7 @@ from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
 from app.utils.pagination import paginate
 from app.api.v1.admin_upload import save_uploaded_file
+from app.utils.packaging_label import normalize_packaging_label_type, format_variant_packaging_line
 from app.config import settings
 import os
 import logging
@@ -139,7 +140,13 @@ async def list_products(
                 {
                     "id": v.id,
                     "hsnCode": getattr(v, "hsn_code", None),
+                    "packagingLabelType": getattr(v, "packaging_label_type", None),
                     "setPieces": getattr(v, "set_pcs", None),
+                    "packagingLabel": format_variant_packaging_line(
+                        getattr(v, "packaging_label_type", None),
+                        getattr(v, "set_pcs", None),
+                        getattr(v, "weight", None),
+                    ),
                     "weight": getattr(v, "weight", None),
                     "mrp": v.mrp,
                     "specialPrice": getattr(v, "special_price", None),
@@ -455,6 +462,9 @@ async def create_product(
                 variant = ProductVariant(
                     product_id=product.id,
                     hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    packaging_label_type=normalize_packaging_label_type(
+                        v.get("packagingLabelType") or v.get("packaging_label_type")
+                    ),
                     set_pcs=v.get("setPieces") or v.get("set_pcs"),
                     weight=v.get("weight"),
                     mrp=v.get("mrp"),
@@ -857,6 +867,9 @@ async def update_product(
                 variant = ProductVariant(
                     product_id=product.id,
                     hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    packaging_label_type=normalize_packaging_label_type(
+                        v.get("packagingLabelType") or v.get("packaging_label_type")
+                    ),
                     set_pcs=v.get("setPieces") or v.get("set_pcs"),
                     weight=v.get("weight"),
                     mrp=v.get("mrp"),

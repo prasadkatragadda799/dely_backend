@@ -12,7 +12,8 @@ class ProductVariant(Base):
     product_id = Column(String(36), ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
 
     hsn_code = Column(String(50), nullable=True)
-    set_pcs = Column(String(50), nullable=True)  # "Set/Pcs"
+    packaging_label_type = Column(String(32), nullable=True)  # set, pieces, pack, unit, pair, dozen
+    set_pcs = Column(String(50), nullable=True)  # detail text e.g. "6×100g", "12"
     weight = Column(String(50), nullable=True)
     mrp = Column(Numeric(10, 2), nullable=True)
     special_price = Column(Numeric(10, 2), nullable=True)

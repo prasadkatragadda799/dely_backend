@@ -205,6 +205,7 @@ async def get_seller_product(
         "variants": [{
             "id": v.id,
             "hsn_code": v.hsn_code,
+            "packaging_label_type": getattr(v, "packaging_label_type", None),
             "set_pcs": v.set_pcs,
             "weight": v.weight,
             "mrp": float(v.mrp) if v.mrp else 0.0,

@@ -12,6 +12,7 @@ from app.models.division import Division
 from app.utils.pagination import paginate
 from app.utils.discount import calculate_discount_percentage
 from app.utils.product_pricing import build_price_options_for_api
+from app.utils.packaging_label import variant_row_for_public_api
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -196,16 +197,9 @@ def get_products(
                 variant_price = getattr(v, "special_price", None) or variant_mrp
                 variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
                 
-                product_data["variants"].append({
-                    "id": v.id,
-                    "hsnCode": getattr(v, "hsn_code", None),
-                    "setPieces": getattr(v, "set_pcs", None),
-                    "weight": getattr(v, "weight", None),
-                    "mrp": float(variant_mrp) if variant_mrp is not None else None,
-                    "specialPrice": float(variant_price) if variant_price is not None else None,
-                    "discountPercentage": variant_discount,
-                    "freeItem": getattr(v, "free_item", None),
-                })
+                product_data["variants"].append(
+                    variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
+                )
         else:
             product_data["variants"] = []
 
@@ -314,16 +308,9 @@ def get_product(
             variant_price = getattr(v, "special_price", None) or variant_mrp
             variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
             
-            product_data["variants"].append({
-                "id": v.id,
-                "hsnCode": getattr(v, "hsn_code", None),
-                "setPieces": getattr(v, "set_pcs", None),
-                "weight": getattr(v, "weight", None),
-                "mrp": float(variant_mrp) if variant_mrp is not None else None,
-                "specialPrice": float(variant_price) if variant_price is not None else None,
-                "discountPercentage": variant_discount,
-                "freeItem": getattr(v, "free_item", None),
-            })
+            product_data["variants"].append(
+                variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
+            )
     else:
         product_data["variants"] = []
 
@@ -540,16 +527,9 @@ def get_featured_products(
                 variant_price = getattr(v, "special_price", None) or variant_mrp
                 variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
                 
-                product_data["variants"].append({
-                    "id": v.id,
-                    "hsnCode": getattr(v, "hsn_code", None),
-                    "setPieces": getattr(v, "set_pcs", None),
-                    "weight": getattr(v, "weight", None),
-                    "mrp": float(variant_mrp) if variant_mrp else None,
-                    "specialPrice": float(variant_price) if variant_price else None,
-                    "discountPercentage": variant_discount,
-                    "freeItem": getattr(v, "free_item", None),
-                })
+                product_data["variants"].append(
+                    variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
+                )
         
         # Add brand information
         if p.brand_rel:
