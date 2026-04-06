@@ -623,6 +623,10 @@ async def update_product(
     hsnCode: Optional[str] = Form(None),
     hsn_code: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
+    # JSON array of ProductImage ids to keep. When sent, any existing image for this product
+    # not listed is deleted before new uploads are applied (omit for legacy append-only behavior).
+    keepImageIds: Optional[str] = Form(None),
+    keep_image_ids: Optional[str] = Form(None),
     # Image files (optional, can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
     primaryIndex: Optional[int] = Form(None),
@@ -678,6 +682,7 @@ async def update_product(
     primaryIndex = primaryIndex if primaryIndex is not None else primary_index
     expiry_date_str = expiryDate or expiry_date
     hsn_code_param = hsnCode if hsnCode is not None else hsn_code
+    keep_image_ids_raw = keepImageIds if keepImageIds is not None else keep_image_ids
 
     # Parse expiry_date (YYYY-MM-DD); empty string clears the field
     if expiry_date_str is not None:
@@ -940,6 +945,32 @@ async def update_product(
 
     db.commit()
     db.refresh(product)
+
+    # Drop removed gallery images when client sends an explicit retention list (admin UI).
+    if keep_image_ids_raw is not None:
+        try:
+            stripped = keep_image_ids_raw.strip()
+            keep_list = json.loads(stripped) if stripped else []
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="keepImageIds must be a valid JSON array of image id strings",
+            )
+        if not isinstance(keep_list, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="keepImageIds must be a JSON array",
+            )
+        keep_set = {str(x) for x in keep_list}
+        for im in (
+            db.query(ProductImage)
+            .filter(ProductImage.product_id == product.id)
+            .all()
+        ):
+            if im.id not in keep_set:
+                db.delete(im)
+        db.commit()
+        db.refresh(product)
 
     # Handle image uploads if provided
     if image_files:
