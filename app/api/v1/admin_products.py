@@ -260,6 +260,8 @@ async def create_product(
     slug: Optional[str] = Form(None),
     expiryDate: Optional[str] = Form(None),  # YYYY-MM-DD
     expiry_date: Optional[str] = Form(None),
+    hsnCode: Optional[str] = Form(None),  # camelCase — GST HSN on product row
+    hsn_code: Optional[str] = Form(None),  # snake_case
     variants: Optional[str] = Form(None),  # JSON string array of variants
     # Image files (can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
@@ -298,6 +300,7 @@ async def create_product(
     meta_description = meta_description if meta_description is not None else metaDescription
     primaryIndex = primaryIndex if primaryIndex is not None else primary_index
     expiry_date_str = expiryDate or expiry_date
+    hsn_code_param = hsnCode if hsnCode is not None else hsn_code
 
     # Parse expiry_date (YYYY-MM-DD)
     expiry_date_parsed: Optional[date] = None
@@ -419,12 +422,24 @@ async def create_product(
     # Ensure slug is unique
     existing_slugs = [row[0] for row in db.query(Product.slug).all()]
     product_slug = make_unique_slug(product_slug, existing_slugs)
+
+    hsn_code_final: Optional[str] = None
+    if hsn_code_param is not None:
+        s = str(hsn_code_param).strip()
+        if s:
+            if len(s) > 50:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="hsn_code must be at most 50 characters",
+                )
+            hsn_code_final = s
     
     # Create product
     product = Product(
         name=name,
         slug=product_slug,
         description=description,
+        hsn_code=hsn_code_final,
         brand_id=brand_id_str,
         company_id=company_id_str,
         category_id=category_id_str,
@@ -459,9 +474,12 @@ async def create_product(
     if variants_list:
         for v in variants_list:
             try:
+                _vh = v.get("hsnCode") if v.get("hsnCode") is not None else v.get("hsn_code")
+                _vh = str(_vh).strip() if _vh is not None else ""
+                variant_hsn = _vh if _vh else hsn_code_final
                 variant = ProductVariant(
                     product_id=product.id,
-                    hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    hsn_code=variant_hsn,
                     packaging_label_type=normalize_packaging_label_type(
                         v.get("packagingLabelType") or v.get("packaging_label_type")
                     ),
@@ -602,6 +620,8 @@ async def update_product(
     slug: Optional[str] = Form(None),
     expiryDate: Optional[str] = Form(None),  # YYYY-MM-DD
     expiry_date: Optional[str] = Form(None),
+    hsnCode: Optional[str] = Form(None),
+    hsn_code: Optional[str] = Form(None),
     variants: Optional[str] = Form(None),
     # Image files (optional, can be single file or list)
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
@@ -657,6 +677,7 @@ async def update_product(
     meta_description = meta_description if meta_description is not None else metaDescription
     primaryIndex = primaryIndex if primaryIndex is not None else primary_index
     expiry_date_str = expiryDate or expiry_date
+    hsn_code_param = hsnCode if hsnCode is not None else hsn_code
 
     # Parse expiry_date (YYYY-MM-DD); empty string clears the field
     if expiry_date_str is not None:
@@ -786,6 +807,20 @@ async def update_product(
         product.meta_description = meta_description
         update_data["meta_description"] = meta_description
 
+    if hsn_code_param is not None:
+        s = str(hsn_code_param).strip()
+        if s:
+            if len(s) > 50:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="hsn_code must be at most 50 characters",
+                )
+            product.hsn_code = s
+            update_data["hsn_code"] = s
+        else:
+            product.hsn_code = None
+            update_data["hsn_code"] = None
+
     # Prices with validation
     new_mrp = mrp if mrp is not None else product.mrp
     new_selling = sellingPrice if sellingPrice is not None else product.selling_price
@@ -864,9 +899,12 @@ async def update_product(
         created_variants: List[ProductVariant] = []
         for v in variants_list:
             try:
+                _vh = v.get("hsnCode") if v.get("hsnCode") is not None else v.get("hsn_code")
+                _vh = str(_vh).strip() if _vh is not None else ""
+                variant_hsn = _vh if _vh else product.hsn_code
                 variant = ProductVariant(
                     product_id=product.id,
-                    hsn_code=v.get("hsnCode") or v.get("hsn_code"),
+                    hsn_code=variant_hsn,
                     packaging_label_type=normalize_packaging_label_type(
                         v.get("packagingLabelType") or v.get("packaging_label_type")
                     ),
