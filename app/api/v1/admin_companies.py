@@ -9,7 +9,7 @@ from uuid import UUID
 from app.database import get_db
 from app.schemas.admin_company import (
     AdminCompanyCreate, AdminCompanyUpdate, AdminCompanyResponse,
-    AdminBrandCreate, AdminBrandUpdate, AdminBrandResponse
+    AdminBrandCreate, AdminBrandResponse
 )
 from app.schemas.common import ResponseModel
 from app.models.company import Company
@@ -582,8 +582,16 @@ async def create_brand(
 @router.put("/brands/{brand_id}", response_model=ResponseModel)
 async def update_brand(
     brand_id: UUID,
-    brand_data: AdminBrandUpdate,
     request: Request,
+    # Form fields (support same payload style as create/update in admin UI)
+    name: Optional[str] = Form(None),
+    companyId: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    categoryId: Optional[str] = Form(None),
+    category_id: Optional[str] = Form(None),
+    logo: Optional[UploadFile] = File(None),
+    logoUrl: Optional[str] = Form(None),
+    logo_url: Optional[str] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -594,12 +602,64 @@ async def update_brand(
     brand = db.query(Brand).filter(Brand.id == brand_id_str).first()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
-    
-    # Update fields
-    update_data = brand_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if hasattr(brand, key):
-            setattr(brand, key, value)
+
+    update_data = {}
+
+    if name is not None:
+        brand.name = name
+        update_data["name"] = name
+
+    # Normalize camelCase / snake_case ids
+    company_id_param = companyId if companyId is not None else company_id
+    category_id_param = categoryId if categoryId is not None else category_id
+    logo_url_param = logoUrl if logoUrl is not None else logo_url
+
+    if company_id_param is not None:
+        if company_id_param == "":
+            brand.company_id = None
+            update_data["company_id"] = None
+        else:
+            try:
+                UUID(company_id_param)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid company ID format"
+                )
+            brand.company_id = company_id_param
+            update_data["company_id"] = company_id_param
+
+    if category_id_param is not None:
+        if category_id_param == "":
+            brand.category_id = None
+            update_data["category_id"] = None
+        else:
+            try:
+                UUID(category_id_param)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid category ID format"
+                )
+            brand.category_id = category_id_param
+            update_data["category_id"] = category_id_param
+
+    # URL field can be set directly unless file is uploaded below
+    if logo_url_param is not None:
+        brand.logo_url = logo_url_param or None
+        update_data["logo_url"] = logo_url_param or None
+
+    if logo and logo.filename:
+        try:
+            uploaded_logo = save_uploaded_file(logo, "brand", None, request)
+            brand.logo_url = uploaded_logo
+            update_data["logo_url"] = uploaded_logo
+        except Exception as e:
+            logger.error(f"Error uploading brand logo during update: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error uploading logo: {str(e)}"
+            )
     
     db.commit()
     db.refresh(brand)
