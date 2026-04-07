@@ -43,10 +43,12 @@ async def admin_login(
     db.commit()
     
     # Create tokens
+    # Be defensive: older/prod rows can occasionally deserialize role as plain string.
+    role_value = admin.role.value if hasattr(admin.role, "value") else str(admin.role)
     token_data = {
         "adminId": str(admin.id),
         "email": admin.email,
-        "role": admin.role.value
+        "role": role_value
     }
     token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
