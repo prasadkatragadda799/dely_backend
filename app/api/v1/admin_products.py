@@ -73,6 +73,23 @@ def _normalize_upload_files(images: Optional[Any]) -> List[UploadFile]:
     return files
 
 
+async def _collect_multipart_images(request: Request, images_fallback: Optional[Any]) -> List[UploadFile]:
+    """
+    Prefer raw multipart extraction so repeated `images` fields are always captured.
+    Falls back to FastAPI-bound param for single-file clients.
+    """
+    try:
+        form = await request.form()
+        raw = form.getlist("images")
+        files = _normalize_upload_files(raw)
+        if files:
+            return files
+    except Exception:
+        # Keep request resilient and use fallback binding.
+        pass
+    return _normalize_upload_files(images_fallback)
+
+
 @router.get("", response_model=ResponseModel)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -286,7 +303,7 @@ async def create_product(
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
-    image_files: List[UploadFile] = _normalize_upload_files(images)
+    image_files: List[UploadFile] = await _collect_multipart_images(request, images)
 
     # Normalize field variants
     categoryId = categoryId or category_id
@@ -643,7 +660,7 @@ async def update_product(
     db: Session = Depends(get_db)
 ):
     """Update a product via multipart/form-data (supports images and variants)"""
-    image_files: List[UploadFile] = _normalize_upload_files(images)
+    image_files: List[UploadFile] = await _collect_multipart_images(request, images)
 
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
