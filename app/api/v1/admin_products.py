@@ -263,22 +263,15 @@ async def create_product(
     hsnCode: Optional[str] = Form(None),  # camelCase — GST HSN on product row
     hsn_code: Optional[str] = Form(None),  # snake_case
     variants: Optional[str] = Form(None),  # JSON string array of variants
-    # Image files (can be single file or list)
-    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
+    # Image files (multiple files under the same multipart field name: images)
+    images: Optional[List[UploadFile]] = File(None),
     primaryIndex: Optional[int] = Form(None),  # camelCase
     primary_index: Optional[int] = Form(None),  # snake_case
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
-    # Normalize images to a list
-    if images is None:
-        image_files: List[UploadFile] = []
-    elif isinstance(images, list):
-        image_files = images
-    else:
-        # Single file (UploadFile or similar) -> wrap in list
-        image_files = [images]
+    image_files: List[UploadFile] = images or []
 
     # Normalize field variants
     categoryId = categoryId or category_id
@@ -627,21 +620,15 @@ async def update_product(
     # not listed is deleted before new uploads are applied (omit for legacy append-only behavior).
     keepImageIds: Optional[str] = Form(None),
     keep_image_ids: Optional[str] = Form(None),
-    # Image files (optional, can be single file or list)
-    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
+    # Image files (multiple files under the same multipart field name: images)
+    images: Optional[List[UploadFile]] = File(None),
     primaryIndex: Optional[int] = Form(None),
     primary_index: Optional[int] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a product via multipart/form-data (supports images and variants)"""
-    # Normalize images to a list
-    if images is None:
-        image_files: List[UploadFile] = []
-    elif isinstance(images, list):
-        image_files = images
-    else:
-        image_files = [images]
+    image_files: List[UploadFile] = images or []
 
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
