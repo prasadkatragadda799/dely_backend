@@ -58,6 +58,21 @@ def _validate_tier_selling_vs_mrp(
         )
 
 
+def _normalize_upload_files(images: Optional[Any]) -> List[UploadFile]:
+    """Normalize multipart image payload to a list of UploadFile-like objects."""
+    if images is None:
+        return []
+    candidates = images if isinstance(images, list) else [images]
+    files: List[UploadFile] = []
+    for img in candidates:
+        if img is None:
+            continue
+        # Accept FastAPI/Starlette UploadFile instances without strict class coupling.
+        if hasattr(img, "filename") and hasattr(img, "file"):
+            files.append(img)  # type: ignore[arg-type]
+    return files
+
+
 @router.get("", response_model=ResponseModel)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -271,14 +286,7 @@ async def create_product(
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
-    if images is None:
-        image_files: List[UploadFile] = []
-    elif isinstance(images, list):
-        image_files = [img for img in images if isinstance(img, UploadFile)]
-    elif isinstance(images, UploadFile):
-        image_files = [images]
-    else:
-        image_files = []
+    image_files: List[UploadFile] = _normalize_upload_files(images)
 
     # Normalize field variants
     categoryId = categoryId or category_id
@@ -635,14 +643,7 @@ async def update_product(
     db: Session = Depends(get_db)
 ):
     """Update a product via multipart/form-data (supports images and variants)"""
-    if images is None:
-        image_files: List[UploadFile] = []
-    elif isinstance(images, list):
-        image_files = [img for img in images if isinstance(img, UploadFile)]
-    elif isinstance(images, UploadFile):
-        image_files = [images]
-    else:
-        image_files = []
+    image_files: List[UploadFile] = _normalize_upload_files(images)
 
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
