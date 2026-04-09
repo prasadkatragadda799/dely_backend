@@ -263,15 +263,22 @@ async def create_product(
     hsnCode: Optional[str] = Form(None),  # camelCase — GST HSN on product row
     hsn_code: Optional[str] = Form(None),  # snake_case
     variants: Optional[str] = Form(None),  # JSON string array of variants
-    # Image files (multiple files under the same multipart field name: images)
-    images: Optional[List[UploadFile]] = File(None),
+    # Image files (can arrive as a single UploadFile or repeated multipart field)
+    images: Optional[Any] = File(None),
     primaryIndex: Optional[int] = Form(None),  # camelCase
     primary_index: Optional[int] = Form(None),  # snake_case
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
-    image_files: List[UploadFile] = images or []
+    if images is None:
+        image_files: List[UploadFile] = []
+    elif isinstance(images, list):
+        image_files = [img for img in images if isinstance(img, UploadFile)]
+    elif isinstance(images, UploadFile):
+        image_files = [images]
+    else:
+        image_files = []
 
     # Normalize field variants
     categoryId = categoryId or category_id
@@ -620,15 +627,22 @@ async def update_product(
     # not listed is deleted before new uploads are applied (omit for legacy append-only behavior).
     keepImageIds: Optional[str] = Form(None),
     keep_image_ids: Optional[str] = Form(None),
-    # Image files (multiple files under the same multipart field name: images)
-    images: Optional[List[UploadFile]] = File(None),
+    # Image files (can arrive as a single UploadFile or repeated multipart field)
+    images: Optional[Any] = File(None),
     primaryIndex: Optional[int] = Form(None),
     primary_index: Optional[int] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a product via multipart/form-data (supports images and variants)"""
-    image_files: List[UploadFile] = images or []
+    if images is None:
+        image_files: List[UploadFile] = []
+    elif isinstance(images, list):
+        image_files = [img for img in images if isinstance(img, UploadFile)]
+    elif isinstance(images, UploadFile):
+        image_files = [images]
+    else:
+        image_files = []
 
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
