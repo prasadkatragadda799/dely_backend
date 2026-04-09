@@ -4,7 +4,7 @@ Admin Product Management Endpoints
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func
-from typing import Optional, List, Union
+from typing import Any, Optional, List, Union
 from uuid import UUID
 from decimal import Decimal
 from app.database import get_db
