@@ -73,21 +73,18 @@ def _normalize_upload_files(images: Optional[Any]) -> List[UploadFile]:
     return files
 
 
-async def _collect_multipart_images(request: Request, images_fallback: Optional[Any]) -> List[UploadFile]:
+async def _collect_multipart_images(request: Request) -> List[UploadFile]:
     """
     Prefer raw multipart extraction so repeated `images` fields are always captured.
-    Falls back to FastAPI-bound param for single-file clients.
+    Reads repeated `images` fields from multipart form payload.
     """
     try:
         form = await request.form()
         raw = form.getlist("images")
-        files = _normalize_upload_files(raw)
-        if files:
-            return files
+        return _normalize_upload_files(raw)
     except Exception:
-        # Keep request resilient and use fallback binding.
-        pass
-    return _normalize_upload_files(images_fallback)
+        # Keep request resilient; no images if multipart parse fails.
+        return []
 
 
 @router.get("", response_model=ResponseModel)
@@ -295,15 +292,13 @@ async def create_product(
     hsnCode: Optional[str] = Form(None),  # camelCase — GST HSN on product row
     hsn_code: Optional[str] = Form(None),  # snake_case
     variants: Optional[str] = Form(None),  # JSON string array of variants
-    # Image files (can arrive as a single UploadFile or repeated multipart field)
-    images: Optional[Any] = File(None),
     primaryIndex: Optional[int] = Form(None),  # camelCase
     primary_index: Optional[int] = Form(None),  # snake_case
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new product with form data and optional images"""
-    image_files: List[UploadFile] = await _collect_multipart_images(request, images)
+    image_files: List[UploadFile] = await _collect_multipart_images(request)
 
     # Normalize field variants
     categoryId = categoryId or category_id
@@ -652,15 +647,13 @@ async def update_product(
     # not listed is deleted before new uploads are applied (omit for legacy append-only behavior).
     keepImageIds: Optional[str] = Form(None),
     keep_image_ids: Optional[str] = Form(None),
-    # Image files (can arrive as a single UploadFile or repeated multipart field)
-    images: Optional[Any] = File(None),
     primaryIndex: Optional[int] = Form(None),
     primary_index: Optional[int] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a product via multipart/form-data (supports images and variants)"""
-    image_files: List[UploadFile] = await _collect_multipart_images(request, images)
+    image_files: List[UploadFile] = await _collect_multipart_images(request)
 
     # Convert UUID to string for database query (Product.id is String(36))
     product_id_str = str(product_id).strip()
