@@ -6,10 +6,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from app.config import settings
+from app.database import engine
 from app.core.exceptions import AppException
 from app.api.route_registry import register_routes
 from app.middleware.security import SecurityHeadersMiddleware, TimingMiddleware
 import logging
+from sqlalchemy import text
 
 # Configure logging
 if not settings.DEBUG:
@@ -79,6 +81,26 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
+
+def _validate_production_settings() -> None:
+    if settings.ENVIRONMENT != "production":
+        return
+
+    if settings.SECRET_KEY == "change-me-in-production":
+        raise RuntimeError("SECRET_KEY must be set to a strong non-default value in production.")
+
+    if settings.PLAYSTORE_TEST_OTP_ENABLED:
+        raise RuntimeError("PLAYSTORE_TEST_OTP_ENABLED must be false in production.")
+
+    origins = [o.strip() for o in (settings.ALLOWED_ORIGINS or "").split(",") if o.strip()]
+    if not origins:
+        raise RuntimeError("ALLOWED_ORIGINS must be configured in production.")
+
+
+@app.on_event("startup")
+def startup_validation() -> None:
+    _validate_production_settings()
+
 # Security Middleware (add first)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(TimingMiddleware)
@@ -88,9 +110,11 @@ app.add_middleware(TimingMiddleware)
 origins_str = settings.ALLOWED_ORIGINS or ""
 origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()] if origins_str else []
 
-# If no origins specified, allow all (for development)
+# If no origins specified, allow all (for development only)
 if not origins:
-    logger.warning("No ALLOWED_ORIGINS set! Allowing all origins")
+    if settings.ENVIRONMENT == "production":
+        raise RuntimeError("No ALLOWED_ORIGINS set in production.")
+    logger.warning("No ALLOWED_ORIGINS set! Allowing all origins in non-production")
     origins = ["*"]
     allow_credentials = False  # Can't use "*" with credentials
 else:
@@ -260,4 +284,26 @@ def health_check():
         "status": "healthy",
         "service": settings.APP_NAME
     }
+
+
+@app.get("/live")
+def liveness_check():
+    return {"status": "alive", "service": settings.APP_NAME}
+
+
+@app.get("/ready")
+def readiness_check():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not_ready",
+                "service": settings.APP_NAME,
+                "checks": {"database": "down"},
+            },
+        )
+    return {"status": "ready", "service": settings.APP_NAME, "checks": {"database": "ok"}}
 

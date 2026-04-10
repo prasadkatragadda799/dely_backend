@@ -33,15 +33,18 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment
 
-Copy `.env.example` to `.env` and update with your settings:
+Copy `.env.ec2.example` to `.env` and update with your settings:
 
 ```bash
-cp .env.example .env
+cp .env.ec2.example .env
 ```
 
 Update the following in `.env`:
 - `DATABASE_URL` - Your database connection string
 - `SECRET_KEY` - A secure secret key for JWT
+- `ALLOWED_ORIGINS` - Required in production (comma-separated)
+- `TWO_FACTOR_API_KEY` - Required for OTP in production
+- `PLAYSTORE_TEST_OTP_ENABLED=false` - Must remain disabled in production
 - Other configuration as needed
 
 ### 3. Database Setup

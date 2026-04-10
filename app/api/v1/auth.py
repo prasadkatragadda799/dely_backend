@@ -17,6 +17,9 @@ from datetime import timedelta, datetime
 from app.config import settings
 import secrets
 import requests
+import logging
+import threading
+import time
 
 
 class RefreshTokenRequest(BaseModel):
@@ -24,10 +27,15 @@ class RefreshTokenRequest(BaseModel):
 
 router = APIRouter()
 
-PLAYSTORE_TEST_PHONE_DIGITS = "7997919145"
-PLAYSTORE_TEST_PHONE_WITH_CC = f"91{PLAYSTORE_TEST_PHONE_DIGITS}"
-PLAYSTORE_TEST_OTP = "654321"
-PLAYSTORE_TEST_REQUEST_ID = "PLAYSTORE-OTP-7997919145"
+logger = logging.getLogger(__name__)
+
+_otp_rate_lock = threading.Lock()
+_otp_send_rate: dict[str, list[float]] = {}
+_otp_verify_rate: dict[str, list[float]] = {}
+OTP_SEND_LIMIT = 5
+OTP_SEND_WINDOW_SEC = 60
+OTP_VERIFY_LIMIT = 8
+OTP_VERIFY_WINDOW_SEC = 10 * 60
 
 
 def _normalize_phone_digits(phone_raw: str) -> str:
@@ -35,21 +43,45 @@ def _normalize_phone_digits(phone_raw: str) -> str:
 
 
 def _is_playstore_test_phone(phone_raw: str) -> bool:
+    if not settings.PLAYSTORE_TEST_OTP_ENABLED:
+        return False
     normalized = _normalize_phone_digits(phone_raw)
-    return normalized in {PLAYSTORE_TEST_PHONE_DIGITS, PLAYSTORE_TEST_PHONE_WITH_CC}
+    base = _normalize_phone_digits(settings.PLAYSTORE_TEST_PHONE)
+    if not base:
+        return False
+    with_cc = f"91{base}"
+    return normalized in {base, with_cc}
+
+
+def _mask_phone(phone_raw: str) -> str:
+    n = _normalize_phone_digits(phone_raw)
+    if len(n) <= 4:
+        return "****"
+    return f"{'*' * (len(n) - 4)}{n[-4:]}"
+
+
+def _check_rate_limit(bucket: dict[str, list[float]], key: str, limit: int, window_seconds: int) -> None:
+    now = time.time()
+    cutoff = now - window_seconds
+    with _otp_rate_lock:
+        entries = [t for t in bucket.get(key, []) if t >= cutoff]
+        if len(entries) >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many attempts. Please try again later.",
+            )
+        entries.append(now)
+        bucket[key] = entries
 
 
 def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> ResponseModel:
     """Send 2Factor OTP after user row exists; delete user if OTP cannot be sent."""
     if _is_playstore_test_phone(phone_raw):
-        print(
-            f"[AUTH/register] Play Store OTP bypass active for {PLAYSTORE_TEST_PHONE_WITH_CC}; "
-            f"request_id={PLAYSTORE_TEST_REQUEST_ID}"
-        )
+        logger.info("[auth.register] test OTP bypass active phone=%s", _mask_phone(phone_raw))
         return ResponseModel(
             success=True,
             data={
-                "request_id": PLAYSTORE_TEST_REQUEST_ID,
+                "request_id": settings.PLAYSTORE_TEST_REQUEST_ID,
                 "user_id": str(user.id),
                 "phone": user.phone,
             },
@@ -57,7 +89,7 @@ def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> Respo
         )
 
     if not settings.TWO_FACTOR_API_KEY:
-        print("[AUTH/register] TWO_FACTOR_API_KEY is not configured")
+        logger.error("[auth.register] TWO_FACTOR_API_KEY missing")
         db.delete(user)
         db.commit()
         raise HTTPException(
@@ -68,18 +100,18 @@ def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> Respo
     phone = (phone_raw or "").strip()
     normalized = _normalize_phone_digits(phone)
     if len(normalized) < 10:
-        print(f"[AUTH/register] Invalid phone provided: {phone}")
+        logger.warning("[auth.register] invalid phone=%s", _mask_phone(phone))
         db.delete(user)
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
     url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
-    print(f"[AUTH/register] Sending OTP to {normalized} (user={user.email})")
+    logger.info("[auth.register] sending OTP phone=%s", _mask_phone(normalized))
     resp = requests.get(url, timeout=10)
     data = resp.json() if resp.content else {}
 
     if (data or {}).get("Status") != "Success" or not (data or {}).get("Details"):
-        print(f"[AUTH/register] OTP send failed for {normalized}: {data}")
+        logger.warning("[auth.register] OTP send failed phone=%s", _mask_phone(normalized))
         db.delete(user)
         db.commit()
         raise HTTPException(
@@ -88,7 +120,7 @@ def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> Respo
         )
 
     request_id = str(data["Details"])
-    print(f"[AUTH/register] OTP sent request_id={request_id} to {normalized}")
+    logger.info("[auth.register] OTP sent phone=%s", _mask_phone(normalized))
 
     return ResponseModel(
         success=True,
@@ -127,9 +159,10 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("[auth.register] unhandled registration error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Could not register user. Please try again.",
         )
 
 
@@ -192,9 +225,10 @@ async def register_multipart(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("[auth.register.multipart] registration failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Could not register user. Please try again.",
         )
 
     try:
@@ -236,9 +270,10 @@ async def register_multipart(
         if u:
             db.delete(u)
             db.commit()
+        logger.exception("[auth.register.multipart] upload handling failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Could not process registration files. Please try again.",
         )
 
     try:
@@ -291,10 +326,11 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
+        logger.exception("[auth.login] unexpected error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Login failed. Please try again."
         )
 
 
@@ -421,15 +457,13 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     normalized = _normalize_phone_digits(phone)
     if len(normalized) < 10:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+    _check_rate_limit(_otp_send_rate, f"send:{normalized}", OTP_SEND_LIMIT, OTP_SEND_WINDOW_SEC)
 
     if _is_playstore_test_phone(phone):
-        print(
-            f"[AUTH/send-otp] Play Store OTP bypass active for {PLAYSTORE_TEST_PHONE_WITH_CC}; "
-            f"request_id={PLAYSTORE_TEST_REQUEST_ID}"
-        )
+        logger.info("[auth.send_otp] test OTP bypass active phone=%s", _mask_phone(phone))
         return ResponseModel(
             success=True,
-            data={"request_id": PLAYSTORE_TEST_REQUEST_ID},
+            data={"request_id": settings.PLAYSTORE_TEST_REQUEST_ID},
             message="OTP sent",
         )
 
@@ -444,6 +478,7 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
         resp = requests.get(url, timeout=10)
         data = resp.json() if resp.content else {}
     except Exception:
+        logger.exception("[auth.send_otp] provider request failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to send OTP",
@@ -513,12 +548,13 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
     normalized = _normalize_phone_digits(phone_raw)
     if len(normalized) < 10:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+    _check_rate_limit(_otp_verify_rate, f"verify:{normalized}", OTP_VERIFY_LIMIT, OTP_VERIFY_WINDOW_SEC)
 
     is_playstore_test = _is_playstore_test_phone(phone_raw)
     if is_playstore_test:
-        if request_id != PLAYSTORE_TEST_REQUEST_ID:
+        if request_id != settings.PLAYSTORE_TEST_REQUEST_ID:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP session")
-        if otp != PLAYSTORE_TEST_OTP:
+        if otp != settings.PLAYSTORE_TEST_OTP:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
     else:
         if not settings.TWO_FACTOR_API_KEY:
@@ -533,6 +569,7 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
             resp = requests.get(verify_url, timeout=10)
             data = resp.json() if resp.content else {}
         except Exception:
+            logger.exception("[auth.verify_otp] provider verify failed")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Failed to verify OTP",
