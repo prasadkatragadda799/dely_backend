@@ -58,6 +58,15 @@ def _validate_tier_selling_vs_mrp(
         )
 
 
+def _normalize_pieces_per_set(unit: Optional[str], pieces_per_set: Optional[int]) -> int:
+    """Ensure piece-based products don't carry pack-like piece counts."""
+    u = str(unit or "piece").strip().lower()
+    if u == "piece":
+        return 1
+    n = int(pieces_per_set) if pieces_per_set is not None else 1
+    return max(1, n)
+
+
 def _normalize_upload_files(images: Optional[Any]) -> List[UploadFile]:
     """Normalize multipart image payload to a list of UploadFile-like objects."""
     if images is None:
@@ -346,7 +355,7 @@ async def create_product(
     # Defaults
     stockQuantity = int(stockQuantity) if stockQuantity is not None else 0
     minOrderQuantity = int(minOrderQuantity) if minOrderQuantity is not None else 1
-    piecesPerSet = int(piecesPerSet) if piecesPerSet is not None else 1
+    piecesPerSet = _normalize_pieces_per_set(unit, piecesPerSet)
 
     # Validate selling price <= mrp
     if sellingPrice > mrp:
@@ -809,8 +818,17 @@ async def update_product(
         product.unit = unit
         update_data["unit"] = unit
     if piecesPerSet is not None:
-        product.pieces_per_set = piecesPerSet
-        update_data["pieces_per_set"] = piecesPerSet
+        normalized_pieces = _normalize_pieces_per_set(
+            unit if unit is not None else product.unit,
+            piecesPerSet,
+        )
+        product.pieces_per_set = normalized_pieces
+        update_data["pieces_per_set"] = normalized_pieces
+    elif unit is not None:
+        normalized_pieces = _normalize_pieces_per_set(unit, product.pieces_per_set)
+        if normalized_pieces != product.pieces_per_set:
+            product.pieces_per_set = normalized_pieces
+            update_data["pieces_per_set"] = normalized_pieces
     if stockQuantity is not None:
         product.stock_quantity = stockQuantity
         update_data["stock_quantity"] = stockQuantity

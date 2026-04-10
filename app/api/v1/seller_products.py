@@ -27,6 +27,14 @@ from app.api.v1.admin_upload import save_uploaded_file
 router = APIRouter()
 
 
+def _normalize_pieces_per_set(unit: Optional[str], pieces_per_set: Optional[int]) -> int:
+    u = str(unit or "piece").strip().lower()
+    if u == "piece":
+        return 1
+    n = int(pieces_per_set) if pieces_per_set is not None else 1
+    return max(1, n)
+
+
 def check_seller_product_access(seller: Admin, product: Product) -> bool:
     """
     Check if seller has access to this product.
@@ -356,7 +364,7 @@ async def create_seller_product(
         stock_quantity=int(stockQuantity) if stockQuantity is not None else 0,
         min_order_quantity=int(minOrderQuantity) if minOrderQuantity is not None else 1,
         unit=unit,
-        pieces_per_set=int(piecesPerSet) if piecesPerSet is not None else 1,
+        pieces_per_set=_normalize_pieces_per_set(unit, piecesPerSet),
         specifications=specifications,
         is_featured=(str(isFeatured).lower() in ("true", "1", "yes")) if isFeatured is not None else False,
         is_available=(str(isAvailable).lower() in ("true", "1", "yes")) if isAvailable is not None else True,

@@ -24,9 +24,38 @@ class RefreshTokenRequest(BaseModel):
 
 router = APIRouter()
 
+PLAYSTORE_TEST_PHONE_DIGITS = "7997919145"
+PLAYSTORE_TEST_PHONE_WITH_CC = f"91{PLAYSTORE_TEST_PHONE_DIGITS}"
+PLAYSTORE_TEST_OTP = "654321"
+PLAYSTORE_TEST_REQUEST_ID = "PLAYSTORE-OTP-7997919145"
+
+
+def _normalize_phone_digits(phone_raw: str) -> str:
+    return "".join(ch for ch in str(phone_raw or "").strip() if ch.isdigit())
+
+
+def _is_playstore_test_phone(phone_raw: str) -> bool:
+    normalized = _normalize_phone_digits(phone_raw)
+    return normalized in {PLAYSTORE_TEST_PHONE_DIGITS, PLAYSTORE_TEST_PHONE_WITH_CC}
+
 
 def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> ResponseModel:
     """Send 2Factor OTP after user row exists; delete user if OTP cannot be sent."""
+    if _is_playstore_test_phone(phone_raw):
+        print(
+            f"[AUTH/register] Play Store OTP bypass active for {PLAYSTORE_TEST_PHONE_WITH_CC}; "
+            f"request_id={PLAYSTORE_TEST_REQUEST_ID}"
+        )
+        return ResponseModel(
+            success=True,
+            data={
+                "request_id": PLAYSTORE_TEST_REQUEST_ID,
+                "user_id": str(user.id),
+                "phone": user.phone,
+            },
+            message="Registration successful. OTP sent.",
+        )
+
     if not settings.TWO_FACTOR_API_KEY:
         print("[AUTH/register] TWO_FACTOR_API_KEY is not configured")
         db.delete(user)
@@ -37,7 +66,7 @@ def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> Respo
         )
 
     phone = (phone_raw or "").strip()
-    normalized = "".join(ch for ch in phone if ch.isdigit())
+    normalized = _normalize_phone_digits(phone)
     if len(normalized) < 10:
         print(f"[AUTH/register] Invalid phone provided: {phone}")
         db.delete(user)
@@ -389,16 +418,26 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     if not phone:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone is required")
 
+    normalized = _normalize_phone_digits(phone)
+    if len(normalized) < 10:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+    if _is_playstore_test_phone(phone):
+        print(
+            f"[AUTH/send-otp] Play Store OTP bypass active for {PLAYSTORE_TEST_PHONE_WITH_CC}; "
+            f"request_id={PLAYSTORE_TEST_REQUEST_ID}"
+        )
+        return ResponseModel(
+            success=True,
+            data={"request_id": PLAYSTORE_TEST_REQUEST_ID},
+            message="OTP sent",
+        )
+
     if not settings.TWO_FACTOR_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="TWO_FACTOR_API_KEY is not configured",
         )
-
-    # Keep it simple: allow digits only (client should send normalized number).
-    normalized = "".join(ch for ch in phone if ch.isdigit())
-    if len(normalized) < 10:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
     url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
     try:
@@ -471,30 +510,36 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
             detail="Phone, request_id, and otp are required",
         )
 
-    if not settings.TWO_FACTOR_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="TWO_FACTOR_API_KEY is not configured",
-        )
-
-    normalized = "".join(ch for ch in phone_raw if ch.isdigit())
+    normalized = _normalize_phone_digits(phone_raw)
     if len(normalized) < 10:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
-    verify_url = (
-        f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/VERIFY/{request_id}/{otp}"
-    )
-    try:
-        resp = requests.get(verify_url, timeout=10)
-        data = resp.json() if resp.content else {}
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to verify OTP",
+    is_playstore_test = _is_playstore_test_phone(phone_raw)
+    if is_playstore_test:
+        if request_id != PLAYSTORE_TEST_REQUEST_ID:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP session")
+        if otp != PLAYSTORE_TEST_OTP:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
+    else:
+        if not settings.TWO_FACTOR_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="TWO_FACTOR_API_KEY is not configured",
+            )
+        verify_url = (
+            f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/VERIFY/{request_id}/{otp}"
         )
+        try:
+            resp = requests.get(verify_url, timeout=10)
+            data = resp.json() if resp.content else {}
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to verify OTP",
+            )
 
-    if (data or {}).get("Status") != "Success":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
+        if (data or {}).get("Status") != "Success":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
 
     # OTP verified: login user by phone
     # Phones in DB may include '+'/'spaces; try both raw and normalized.

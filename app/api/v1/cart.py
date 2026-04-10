@@ -54,6 +54,19 @@ def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
         "minOrderQuantity": int(product.min_order_quantity)
         if getattr(product, "min_order_quantity", None) is not None
         else int(getattr(product, "min_order", None) or 1),
+        "divisionId": str(product.division_id) if getattr(product, "division_id", None) else None,
+        "divisionSlug": (
+            str(product.division.slug).strip().lower()
+            if getattr(product, "division", None) is not None
+            and getattr(product.division, "slug", None) is not None
+            else None
+        ),
+        "categorySlug": (
+            str(product.category.slug).strip().lower()
+            if getattr(product, "category", None) is not None
+            and getattr(product.category, "slug", None) is not None
+            else None
+        ),
     }
     if variant_set:
         d["variantSetPieces"] = variant_set
