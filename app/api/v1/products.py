@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, func
 from app.database import get_db
 from app.api.deps import get_current_user, require_kyc_verified
@@ -159,8 +159,20 @@ def get_products(
     
     # Apply pagination
     offset = (page - 1) * limit
-    products = query.offset(offset).limit(limit).all()
-    
+    products = (
+        query.options(
+            joinedload(Product.category),
+            joinedload(Product.division),
+            joinedload(Product.brand_rel),
+            joinedload(Product.company),
+            joinedload(Product.variants),
+            joinedload(Product.product_images),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
     # Format products with enhanced data
     product_list = []
     for p in products:
@@ -228,7 +240,10 @@ def get_products(
                 "name": p.category.name,
                 "slug": p.category.slug
             }
-        
+
+        if p.division:
+            product_data["divisionSlug"] = p.division.slug
+
         # Add product images
         if p.product_images:
             product_data["images"] = [{
@@ -266,7 +281,19 @@ def get_product(
     db: Session = Depends(get_db)
 ):
     """Get product details by ID (Mobile App API) - Requires KYC verification"""
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = (
+        db.query(Product)
+        .options(
+            joinedload(Product.category),
+            joinedload(Product.division),
+            joinedload(Product.brand_rel),
+            joinedload(Product.company),
+            joinedload(Product.variants),
+            joinedload(Product.product_images),
+        )
+        .filter(Product.id == product_id)
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -339,7 +366,10 @@ def get_product(
             "name": product.category.name,
             "slug": product.category.slug
         }
-    
+
+    if product.division:
+        product_data["divisionSlug"] = product.division.slug
+
     # Add images
     if product.product_images:
         product_data["images"] = [{
