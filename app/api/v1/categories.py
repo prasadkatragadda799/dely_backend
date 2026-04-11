@@ -25,6 +25,43 @@ def _resolve_division_id(db: Session, division_slug: Optional[str]):
     return str(d.id) if d else None
 
 
+def _collect_forest_category_ids(db: Session, division_id: Optional[str]) -> set:
+    """
+    IDs of root categories for this shelf plus every descendant.
+
+    Subcategories in admin often have a concrete division_id (e.g. FMCG) while their
+    parent root has division_id NULL (default grocery). Filtering all rows by
+    division_id would drop children and return empty `children` in the app.
+    """
+    root_q = db.query(Category.id).filter(
+        Category.is_active == True,
+        Category.parent_id == None,
+    )
+    if division_id is not None:
+        root_q = root_q.filter(Category.division_id == division_id)
+    else:
+        root_q = root_q.filter(Category.division_id == None)
+    root_ids = [row[0] for row in root_q.all()]
+    if not root_ids:
+        return set()
+
+    collected = set()
+    frontier = list(root_ids)
+    while frontier:
+        cid = frontier.pop()
+        if cid in collected:
+            continue
+        collected.add(cid)
+        for (child_id,) in (
+            db.query(Category.id)
+            .filter(Category.parent_id == cid, Category.is_active == True)
+            .all()
+        ):
+            if child_id not in collected:
+                frontier.append(child_id)
+    return collected
+
+
 @router.get("", response_model=ResponseModel)
 def get_categories(
     division_slug: Optional[str] = Query(None, description="Filter by division slug, e.g. 'kitchen'. Omit for default Grocery."),
@@ -34,12 +71,15 @@ def get_categories(
     from sqlalchemy import func
 
     division_id = _resolve_division_id(db, division_slug)
-    query = db.query(Category).filter(Category.is_active == True)
-    if division_id is not None:
-        query = query.filter(Category.division_id == division_id)
-    else:
-        query = query.filter(Category.division_id == None)
-    all_categories = query.all()
+    allowed_ids = _collect_forest_category_ids(db, division_id)
+    if not allowed_ids:
+        return ResponseModel(success=True, data=[])
+
+    all_categories = (
+        db.query(Category)
+        .filter(Category.id.in_(allowed_ids), Category.is_active == True)
+        .all()
+    )
     
     def build_tree(parent_id=None):
         result = []
