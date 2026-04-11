@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.api.v1.products import _resolve_division_id
 from app.api.deps import get_current_user
@@ -20,6 +20,40 @@ from decimal import Decimal
 from typing import Optional
 
 router = APIRouter()
+
+
+def _product_belongs_to_grocery_cart_tab(db: Session, product: Product) -> bool:
+    """
+    FMCG / default grocery tab — matches how GET /products scopes the grocery vertical.
+
+    Uses the product's current division (not the cart row snapshot), so lines with a
+    stale or NULL cart.division_id still land in the correct tab.
+    """
+    default_id = _resolve_division_id(db, "default")
+    fmcg_id = _resolve_division_id(db, "fmcg")
+    pid = str(product.division_id) if product.division_id else None
+    if pid is None:
+        cat = getattr(product, "category", None)
+        if cat is not None:
+            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
+            if cslug in ("kitchen", "home", "homekitchen"):
+                return False
+        return True
+    if default_id and pid == default_id:
+        cat = getattr(product, "category", None)
+        if cat is not None:
+            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
+            if cslug in ("kitchen", "home", "homekitchen"):
+                return False
+        return True
+    if fmcg_id and pid == fmcg_id:
+        cat = getattr(product, "category", None)
+        if cat is not None:
+            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
+            if cslug in ("kitchen", "home", "homekitchen"):
+                return False
+        return True
+    return False
 
 
 def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
@@ -92,33 +126,34 @@ def get_cart(
 ):
     """Get user's cart. When division_slug is set, return only lines for that vertical (mobile tabs)."""
     cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
-    division_filtered = False
 
     if division_slug:
-        division_filtered = True
         slug = division_slug.strip().lower()
-        if slug in ("fmcg", "default", "grocery"):
-            default_id = _resolve_division_id(db, "default")
-            if default_id:
-                cart_items = [
-                    c
-                    for c in cart_items
-                    if c.division_id is None or str(c.division_id) == default_id
-                ]
-            else:
-                cart_items = [c for c in cart_items if c.division_id is None]
-        elif slug in ("homekitchen", "kitchen", "home"):
-            div_id = _resolve_division_id(db, "kitchen") or _resolve_division_id(db, "home")
-            if div_id is not None:
-                cart_items = [c for c in cart_items if c.division_id == div_id]
-            else:
-                cart_items = []
-        else:
-            div_id = _resolve_division_id(db, division_slug)
-            if div_id is not None:
-                cart_items = [c for c in cart_items if c.division_id == div_id]
-            else:
-                cart_items = []
+        product_ids = [str(c.product_id) for c in cart_items]
+        product_by_id: dict = {}
+        if product_ids:
+            loaded = (
+                db.query(Product)
+                .options(joinedload(Product.division), joinedload(Product.category))
+                .filter(Product.id.in_(product_ids))
+                .all()
+            )
+            product_by_id = {str(p.id): p for p in loaded}
+
+        def _keep_line(c: Cart) -> bool:
+            prod = product_by_id.get(str(c.product_id))
+            if not prod:
+                return False
+            if slug in ("fmcg", "default", "grocery"):
+                return _product_belongs_to_grocery_cart_tab(db, prod)
+            if slug in ("homekitchen", "kitchen", "home"):
+                return not _product_belongs_to_grocery_cart_tab(db, prod)
+            div_id = _resolve_division_id(db, slug)
+            if div_id is None:
+                return False
+            return bool(prod.division_id) and str(prod.division_id) == div_id
+
+        cart_items = [c for c in cart_items if _keep_line(c)]
 
     items = []
     for item in cart_items:
@@ -192,6 +227,7 @@ def add_to_cart(
                 detail=f"Minimum order quantity is {min_order}"
             )
         existing_item.quantity += item_data.quantity
+        existing_item.division_id = product_division_id
         db.commit()
         db.refresh(existing_item)
     else:
