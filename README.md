@@ -44,7 +44,7 @@ Update the following in `.env`:
 - `SECRET_KEY` - A secure secret key for JWT
 - `ALLOWED_ORIGINS` - Required in production (comma-separated)
 - `TWO_FACTOR_API_KEY` - Required for OTP in production
-- `PLAYSTORE_TEST_PHONE` / `PLAYSTORE_TEST_OTP` - In **non-production**, this phone skips 2Factor and uses the fixed OTP (defaults: `7997919145` / `654321`). In production, that bypass is off unless `PLAYSTORE_TEST_OTP_ENABLED=true` (disallowed at startup).
+- `PLAYSTORE_TEST_PHONE` / `PLAYSTORE_TEST_OTP` / `PLAYSTORE_TEST_REQUEST_ID` — That phone number skips 2Factor SMS in **all** environments and uses the fixed OTP (defaults: `7997919145` / `654321`). Treat `PLAYSTORE_TEST_OTP` as a secret in production.
 - Other configuration as needed
 
 ### 3. Database Setup

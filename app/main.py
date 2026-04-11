@@ -89,9 +89,6 @@ def _validate_production_settings() -> None:
     if settings.SECRET_KEY == "change-me-in-production":
         raise RuntimeError("SECRET_KEY must be set to a strong non-default value in production.")
 
-    if settings.PLAYSTORE_TEST_OTP_ENABLED:
-        raise RuntimeError("PLAYSTORE_TEST_OTP_ENABLED must be false in production.")
-
     origins = [o.strip() for o in (settings.ALLOWED_ORIGINS or "").split(",") if o.strip()]
     if not origins:
         raise RuntimeError("ALLOWED_ORIGINS must be configured in production.")

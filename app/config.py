@@ -53,7 +53,6 @@ class Settings(BaseSettings):
     GST_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
     TWO_FACTOR_API_KEY: str = os.getenv("TWO_FACTOR_API_KEY", "")
-    PLAYSTORE_TEST_OTP_ENABLED: bool = os.getenv("PLAYSTORE_TEST_OTP_ENABLED", "false").lower() == "true"
     PLAYSTORE_TEST_PHONE: str = os.getenv("PLAYSTORE_TEST_PHONE", "7997919145")
     PLAYSTORE_TEST_OTP: str = os.getenv("PLAYSTORE_TEST_OTP", "654321")
     PLAYSTORE_TEST_REQUEST_ID: str = os.getenv(
