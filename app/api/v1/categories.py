@@ -59,12 +59,12 @@ def get_categories(
                     "color": cat.color,
                     "image_url": cat.image if hasattr(cat, 'image') and cat.image else None,
                     "product_count": product_count,
-                    "children": build_tree(cat.id)
+                    "display_order": int(getattr(cat, "display_order", 0) or 0),
+                    "children": build_tree(cat.id),
                 }
                 result.append(category_data)
-        
-        # Sort by display_order
-        result.sort(key=lambda x: x.get("displayOrder", 0))
+
+        result.sort(key=lambda x: (x.get("display_order", 0), x.get("name") or ""))
         return result
     
     tree = build_tree()
