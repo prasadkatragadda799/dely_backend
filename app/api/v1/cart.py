@@ -18,7 +18,7 @@ from app.utils.product_pricing import (
 )
 from uuid import UUID
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 router = APIRouter()
 
@@ -158,47 +158,42 @@ def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
     return d
 
 
-@router.get("", response_model=ResponseModel)
-def get_cart(
-    division_slug: Optional[str] = Query(
-        None,
-        description="Filter cart lines: 'fmcg'/'default'/'grocery' = grocery (NULL or default division id); "
-        "'kitchen'/'home'/'homeKitchen' = kitchen/home division. Omit for all items.",
-    ),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get user's cart. When division_slug is set, return only lines for that vertical (mobile tabs)."""
-    cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
+def filter_cart_items_by_division_slug(
+    db: Session, cart_items: List[Cart], division_slug: Optional[str]
+) -> List[Cart]:
+    """Same vertical filter as GET /cart — used by POST so the mutation payload matches the active tab."""
+    if not division_slug or not str(division_slug).strip():
+        return cart_items
+    slug = division_slug.strip().lower()
+    product_ids = [str(c.product_id) for c in cart_items]
+    product_by_id: dict = {}
+    if product_ids:
+        loaded = (
+            db.query(Product)
+            .options(joinedload(Product.division), joinedload(Product.category))
+            .filter(Product.id.in_(product_ids))
+            .all()
+        )
+        product_by_id = {str(p.id): p for p in loaded}
 
-    if division_slug:
-        slug = division_slug.strip().lower()
-        product_ids = [str(c.product_id) for c in cart_items]
-        product_by_id: dict = {}
-        if product_ids:
-            loaded = (
-                db.query(Product)
-                .options(joinedload(Product.division), joinedload(Product.category))
-                .filter(Product.id.in_(product_ids))
-                .all()
-            )
-            product_by_id = {str(p.id): p for p in loaded}
+    def _keep_line(c: Cart) -> bool:
+        prod = product_by_id.get(str(c.product_id))
+        if not prod:
+            return False
+        if slug in ("fmcg", "default", "grocery"):
+            return _product_belongs_to_grocery_cart_tab(db, prod)
+        if slug in ("homekitchen", "kitchen", "home"):
+            return not _product_belongs_to_grocery_cart_tab(db, prod)
+        div_id = _resolve_division_id(db, slug)
+        if div_id is None:
+            return False
+        return bool(prod.division_id) and str(prod.division_id) == div_id
 
-        def _keep_line(c: Cart) -> bool:
-            prod = product_by_id.get(str(c.product_id))
-            if not prod:
-                return False
-            if slug in ("fmcg", "default", "grocery"):
-                return _product_belongs_to_grocery_cart_tab(db, prod)
-            if slug in ("homekitchen", "kitchen", "home"):
-                return not _product_belongs_to_grocery_cart_tab(db, prod)
-            div_id = _resolve_division_id(db, slug)
-            if div_id is None:
-                return False
-            return bool(prod.division_id) and str(prod.division_id) == div_id
+    return [c for c in cart_items if _keep_line(c)]
 
-        cart_items = [c for c in cart_items if _keep_line(c)]
 
+def build_cart_response_data(db: Session, cart_items: List[Cart]) -> dict:
+    """Serialize cart lines to mobile `items` + `summary` (summary matches the given lines only)."""
     items = []
     for item in cart_items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
@@ -220,19 +215,40 @@ def get_cart(
 
     summary_data = summarize_cart_lines(db, cart_items)
     summary = CartSummary(**summary_data)
+    return {
+        "items": items,
+        "summary": summary.dict(),
+    }
+
+
+@router.get("", response_model=ResponseModel)
+def get_cart(
+    division_slug: Optional[str] = Query(
+        None,
+        description="Filter cart lines: 'fmcg'/'default'/'grocery' = grocery (NULL or default division id); "
+        "'kitchen'/'home'/'homeKitchen' = kitchen/home division. Omit for all items.",
+    ),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's cart. When division_slug is set, return only lines for that vertical (mobile tabs)."""
+    cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
+    cart_items = filter_cart_items_by_division_slug(db, cart_items, division_slug)
+    data = build_cart_response_data(db, cart_items)
 
     return ResponseModel(
         success=True,
-        data={
-            "items": items,
-            "summary": summary.dict()
-        }
+        data=data,
     )
 
 
 @router.post("", response_model=ResponseModel)
 def add_to_cart(
     item_data: CartItemAdd,
+    division_slug: Optional[str] = Query(
+        None,
+        description="Optional. When set (e.g. fmcg or kitchen), response matches GET /cart for that tab.",
+    ),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -292,37 +308,14 @@ def add_to_cart(
         db.refresh(cart_item)
         existing_item = cart_item
 
-    # Return full cart after adding item (matching requirements)
     cart_items = db.query(Cart).filter(Cart.user_id == str(current_user.id)).all()
-    items = []
-    for cart_item in cart_items:
-        prod = db.query(Product).filter(Product.id == str(cart_item.product_id)).first()
-        if prod:
-            ctier = getattr(cart_item, "price_option_key", None) or "unit"
-            sell_dec = customer_price_with_commission(prod, ctier)
-            subtotal_val = sell_dec * cart_item.quantity
-            prod_dict = _cart_line_product_dict(prod, ctier)
-            items.append({
-                "id": str(cart_item.id),
-                "product_id": str(cart_item.product_id),
-                "quantity": cart_item.quantity,
-                "price_option_key": ctier,
-                "product": prod_dict,
-                "subtotal": float(subtotal_val),
-                "created_at": cart_item.created_at.isoformat() if cart_item.created_at else None,
-                "updated_at": cart_item.updated_at.isoformat() if cart_item.updated_at else None
-            })
+    cart_items = filter_cart_items_by_division_slug(db, cart_items, division_slug)
+    data = build_cart_response_data(db, cart_items)
 
-    summary_data = summarize_cart_lines(db, cart_items)
-    summary = CartSummary(**summary_data)
-    
     return ResponseModel(
         success=True,
-        data={
-            "items": items,
-            "summary": summary.dict()
-        },
-        message="Item added to cart"
+        data=data,
+        message="Item added to cart",
     )
 
 

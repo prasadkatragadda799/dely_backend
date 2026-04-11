@@ -11,6 +11,16 @@ from app.utils.product_pricing import (
 
 def summarize_cart_lines(db: Session, cart_items: list) -> dict:
     """Subtotal/discount/tax from cart ORM rows (respects price_option_key per line)."""
+    if not cart_items:
+        return {
+            "subtotal": 0.0,
+            "discount": 0.0,
+            "delivery_charge": 0.0,
+            "tax": 0.0,
+            "total": 0.0,
+            "item_count": 0,
+        }
+
     subtotal = Decimal("0.00")
     discount = Decimal("0.00")
 
