@@ -43,14 +43,23 @@ def _normalize_phone_digits(phone_raw: str) -> str:
 
 
 def _is_playstore_test_phone(phone_raw: str) -> bool:
-    if not settings.PLAYSTORE_TEST_OTP_ENABLED:
-        return False
+    """
+    Use fixed OTP (no 2Factor SMS) for PLAYSTORE_TEST_PHONE when digits match
+    (with or without leading 91).
+
+    Non-production: always on for that number (dev/staging convenience).
+    Production: only if PLAYSTORE_TEST_OTP_ENABLED=true (startup forbids that).
+    """
     normalized = _normalize_phone_digits(phone_raw)
     base = _normalize_phone_digits(settings.PLAYSTORE_TEST_PHONE)
     if not base:
         return False
     with_cc = f"91{base}"
-    return normalized in {base, with_cc}
+    if normalized not in {base, with_cc}:
+        return False
+    if settings.ENVIRONMENT == "production":
+        return settings.PLAYSTORE_TEST_OTP_ENABLED
+    return True
 
 
 def _mask_phone(phone_raw: str) -> str:
