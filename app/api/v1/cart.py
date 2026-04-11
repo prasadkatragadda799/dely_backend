@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.schemas.cart import CartItemAdd, CartItemUpdate, CartResponse, CartItemResponse, CartSummary
 from app.schemas.common import ResponseModel
 from app.models.cart import Cart
+from app.models.category import Category
 from app.models.product import Product
 from app.services.cart_service import summarize_cart_lines
 from app.utils.product_pricing import (
@@ -22,36 +23,79 @@ from typing import Optional
 router = APIRouter()
 
 
+def _category_slug_implies_home_kitchen(slug: Optional[str]) -> bool:
+    """Heuristic when category.division_id is missing but slug is clearly H&K (e.g. home-care)."""
+    if not slug or not str(slug).strip():
+        return False
+    raw = str(slug).strip().lower()
+    norm = raw.replace("-", "")
+    if norm in ("kitchen", "home", "homekitchen", "homecare"):
+        return True
+    if "kitchen" in norm:
+        return True
+    if raw.startswith("home-"):
+        return True
+    return False
+
+
+def _category_tree_indicates_home_kitchen(db: Session, category) -> bool:
+    """
+    True if the product's category or any ancestor is on Kitchen/Home (or another
+    non-grocery) division — fixes products left on default division_id but filed under
+    the Home & Kitchen category tree.
+    """
+    if not category:
+        return False
+    default_id = _resolve_division_id(db, "default")
+    fmcg_id = _resolve_division_id(db, "fmcg")
+    kitchen_id = _resolve_division_id(db, "kitchen")
+    home_id = _resolve_division_id(db, "home")
+
+    leaf = category
+    cur = category
+    seen = set()
+    while cur is not None and str(cur.id) not in seen:
+        seen.add(str(cur.id))
+        cid = str(cur.division_id) if getattr(cur, "division_id", None) else None
+        if cid:
+            if kitchen_id and cid == kitchen_id:
+                return True
+            if home_id and cid == home_id:
+                return True
+            if default_id and cid == default_id:
+                pass
+            elif fmcg_id and cid == fmcg_id:
+                pass
+            else:
+                return True
+        parent_id = str(cur.parent_id) if cur.parent_id else None
+        if not parent_id:
+            break
+        cur = db.query(Category).filter(Category.id == parent_id).first()
+
+    return _category_slug_implies_home_kitchen(getattr(leaf, "slug", None))
+
+
 def _product_belongs_to_grocery_cart_tab(db: Session, product: Product) -> bool:
     """
     FMCG / default grocery tab — matches how GET /products scopes the grocery vertical.
 
     Uses the product's current division (not the cart row snapshot), so lines with a
-    stale or NULL cart.division_id still land in the correct tab.
+    stale or NULL cart.division_id still land in the correct tab. Category tree and slug
+    are used when division_id on the product is still default grocery.
     """
+    cat = getattr(product, "category", None)
+    if cat is not None and _category_tree_indicates_home_kitchen(db, cat):
+        return False
+
     default_id = _resolve_division_id(db, "default")
     fmcg_id = _resolve_division_id(db, "fmcg")
     pid = str(product.division_id) if product.division_id else None
     if pid is None:
-        cat = getattr(product, "category", None)
-        if cat is not None:
-            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
-            if cslug in ("kitchen", "home", "homekitchen"):
-                return False
         return True
     if default_id and pid == default_id:
-        cat = getattr(product, "category", None)
-        if cat is not None:
-            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
-            if cslug in ("kitchen", "home", "homekitchen"):
-                return False
         return True
     if fmcg_id and pid == fmcg_id:
-        cat = getattr(product, "category", None)
-        if cat is not None:
-            cslug = (getattr(cat, "slug", None) or "").strip().lower().replace("-", "")
-            if cslug in ("kitchen", "home", "homekitchen"):
-                return False
         return True
     return False
 
