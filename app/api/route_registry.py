@@ -49,6 +49,7 @@ from app.api.v1 import (
     delivery_dashboard,
     admin_delivery,
 )
+from app.web import legal_routes
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,9 @@ def register_routes(app: FastAPI) -> None:
     ]
     for router, prefix, tags in delivery_routes:
         app.include_router(router, prefix=prefix, tags=tags)
+
+    # Public legal HTML (e.g. https://delycart.in/privacy-policy)
+    app.include_router(legal_routes.router)
 
     # Startup sanity check (helps debug "404 Not Found" due to version/deployment mismatch).
     # Enabled when DEBUG is on or when LOG_ROUTE_MATCHES=true is set.
