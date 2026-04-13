@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
@@ -6,27 +6,17 @@ from decimal import Decimal
 from app.schemas.product import ProductListResponse
 
 
-class CartItemBase(BaseModel):
-    product_id: UUID = None
-    productId: UUID = None  # Support camelCase
+class CartItemAdd(BaseModel):
+    """POST /cart body — Pydantic v2: use aliases so mobile snake_case and camelCase both work."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    product_id: UUID = Field(validation_alias=AliasChoices("product_id", "productId"))
     quantity: int
-    
-    def __init__(self, **data):
-        # Support both product_id and productId
-        if 'productId' in data and 'product_id' not in data:
-            data['product_id'] = data['productId']
-        super().__init__(**data)
-
-
-class CartItemAdd(CartItemBase):
-    price_option_key: str = "unit"
-
-    def __init__(self, **data):
-        if "priceOptionKey" in data and "price_option_key" not in data:
-            data["price_option_key"] = str(data.pop("priceOptionKey") or "unit")
-        if "price_option_key" not in data:
-            data["price_option_key"] = "unit"
-        super().__init__(**data)
+    price_option_key: str = Field(
+        default="unit",
+        validation_alias=AliasChoices("price_option_key", "priceOptionKey"),
+    )
 
 
 class CartItemUpdate(BaseModel):
@@ -34,6 +24,8 @@ class CartItemUpdate(BaseModel):
 
 
 class CartItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     product_id: UUID
     quantity: int
@@ -41,9 +33,6 @@ class CartItemResponse(BaseModel):
     subtotal: Decimal
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class CartSummary(BaseModel):
@@ -58,4 +47,3 @@ class CartSummary(BaseModel):
 class CartResponse(BaseModel):
     items: List[CartItemResponse]
     summary: CartSummary
-
