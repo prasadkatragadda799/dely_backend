@@ -44,8 +44,27 @@ Required values:
 - `ENVIRONMENT=production`
 - `DEBUG=false`
 - `SECRET_KEY` (strong random value)
-- `DATABASE_URL`
+- `DATABASE_URL` or `DB_SECRET_ID`
 - `ALLOWED_ORIGINS`
+
+To use AWS Secrets Manager dynamically at boot instead of a fixed
+`DATABASE_URL`, add these values to `.env`:
+
+```bash
+DB_SECRET_ID=arn:aws:secretsmanager:ap-south-2:123456789012:secret:rds!db-xxxxxx
+AWS_REGION=ap-south-2
+DB_HOST=database-1.example.ap-south-2.rds.amazonaws.com
+DB_PORT=5432
+DB_NAME=postgres
+DB_ENGINE=postgresql
+DB_QUERY=sslmode=require
+RUN_MIGRATIONS=false
+```
+
+Notes:
+- The secret must contain `username` and `password` keys.
+- The EC2 instance role/user must have `secretsmanager:GetSecretValue` permission.
+- If `DB_SECRET_ID` is set, `start.sh` fetches the latest secret on each service boot and exports `DATABASE_URL` before migrations/app startup.
 
 ## 5) Run migrations once manually
 

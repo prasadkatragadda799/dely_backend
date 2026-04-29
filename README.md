@@ -40,7 +40,7 @@ cp .env.ec2.example .env
 ```
 
 Update the following in `.env`:
-- `DATABASE_URL` - Your database connection string
+- `DATABASE_URL` - Your database connection string, or use `DB_SECRET_ID` to fetch the current password from AWS Secrets Manager at boot
 - `SECRET_KEY` - A secure secret key for JWT
 - `ALLOWED_ORIGINS` - Required in production (comma-separated)
 - `TWO_FACTOR_API_KEY` - Required for OTP in production
