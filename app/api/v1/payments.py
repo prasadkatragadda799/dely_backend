@@ -19,6 +19,11 @@ def initiate_payment(
     db: Session = Depends(get_db)
 ):
     """Initiate payment"""
+    raise HTTPException(
+        status_code=400,
+        detail="Online payments are disabled. Please place order using cash on delivery.",
+    )
+
     user_id_str = str(current_user.id)
     order_id_str = str(payment_data.order_id)
 
@@ -87,6 +92,11 @@ def verify_payment(
     db: Session = Depends(get_db)
 ):
     """Verify payment"""
+    raise HTTPException(
+        status_code=400,
+        detail="Payment verification is unavailable because only cash on delivery is enabled.",
+    )
+
     # In production, verify with payment gateway
     # For now, mock verification
     

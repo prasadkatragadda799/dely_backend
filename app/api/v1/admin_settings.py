@@ -23,6 +23,17 @@ from app.config import settings as app_settings
 router = APIRouter()
 
 
+def _cod_only_payment_settings(existing: Optional[dict] = None) -> dict:
+    base = existing.copy() if isinstance(existing, dict) else {}
+    base["creditEnabled"] = False
+    base["upiEnabled"] = False
+    base["bankTransferEnabled"] = False
+    base["cashOnDeliveryEnabled"] = True
+    base["defaultCreditLimit"] = 0
+    base["paymentTermsDays"] = 0
+    return base
+
+
 def get_setting(db: Session, key: str) -> dict:
     """Get a setting by key"""
     setting = db.query(Settings).filter(Settings.key == key).first()
@@ -145,18 +156,7 @@ async def get_payment_settings(
     db: Session = Depends(get_db)
 ):
     """Get payment settings"""
-    settings = get_setting(db, "payment")
-    
-    # Default values
-    if not settings:
-        settings = {
-            "creditEnabled": True,
-            "upiEnabled": True,
-            "bankTransferEnabled": True,
-            "cashOnDeliveryEnabled": False,
-            "defaultCreditLimit": 50000,
-            "paymentTermsDays": 30
-        }
+    settings = _cod_only_payment_settings(get_setting(db, "payment"))
     
     return ResponseModel(
         success=True,
@@ -173,25 +173,9 @@ async def update_payment_settings(
     db: Session = Depends(get_db)
 ):
     """Update payment settings"""
-    # Get current settings
-    current_settings = get_setting(db, "payment")
-    
-    # Update fields
-    if settings_data.creditEnabled is not None:
-        current_settings["creditEnabled"] = settings_data.creditEnabled
-    if settings_data.upiEnabled is not None:
-        current_settings["upiEnabled"] = settings_data.upiEnabled
-    if settings_data.bankTransferEnabled is not None:
-        current_settings["bankTransferEnabled"] = settings_data.bankTransferEnabled
-    if settings_data.cashOnDeliveryEnabled is not None:
-        current_settings["cashOnDeliveryEnabled"] = settings_data.cashOnDeliveryEnabled
-    if settings_data.defaultCreditLimit is not None:
-        current_settings["defaultCreditLimit"] = settings_data.defaultCreditLimit
-    if settings_data.paymentTermsDays is not None:
-        current_settings["paymentTermsDays"] = settings_data.paymentTermsDays
-    
-    # Save settings
-    update_setting(db, "payment", current_settings)
+    current_settings = _cod_only_payment_settings(get_setting(db, "payment"))
+    # Keep this endpoint idempotent and COD-only regardless of incoming payload.
+    update_setting(db, "payment", _cod_only_payment_settings(current_settings))
     
     # Log activity
     log_admin_activity(
@@ -469,7 +453,7 @@ async def get_all_settings(
 ):
     """Get all settings in one request"""
     general_settings = get_setting(db, "general") or {}
-    payment_settings = get_setting(db, "payment") or {}
+    payment_settings = _cod_only_payment_settings(get_setting(db, "payment"))
     delivery_settings = get_setting(db, "delivery") or {}
     tax_settings = get_setting(db, "tax") or {}
     notification_settings = get_setting(db, "notifications") or {}

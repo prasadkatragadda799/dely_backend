@@ -19,6 +19,19 @@ from decimal import Decimal
 router = APIRouter()
 
 
+COD_ALIASES = {"cod", "cash", "cash_on_delivery", "cash-on-delivery"}
+
+
+def _normalize_payment_method(raw_method: Optional[str]) -> str:
+    method = str(raw_method or "").strip().lower()
+    if method in COD_ALIASES:
+        return "cod"
+    raise HTTPException(
+        status_code=400,
+        detail="Only cash on delivery is supported right now. Use payment_method='cod'.",
+    )
+
+
 def _parse_optional_cancel_body(raw: bytes) -> OrderCancel:
     """Accept missing/empty body and JSON null (clients often POST with no usable JSON)."""
     if not raw or not raw.strip():
@@ -78,13 +91,15 @@ def create_order(
         if first_product and first_product.division_id:
             division_id = str(first_product.division_id)
 
+    normalized_payment_method = _normalize_payment_method(order_data.payment_method)
+
     order = Order(
         order_number=generate_order_number(),
         user_id=str(current_user.id),
         division_id=division_id,
         status=OrderStatus.PENDING,
         delivery_address=delivery_address,
-        payment_method=order_data.payment_method,
+        payment_method=normalized_payment_method,
         payment_details=order_data.payment_details,
         subtotal=totals["subtotal"],
         discount=totals["discount"],

@@ -93,7 +93,13 @@ async def list_orders(
     # Handle payment method (camelCase or snake_case)
     payment_method_value = paymentMethod or payment_method
     if payment_method_value:
-        query = query.filter(Order.payment_method == payment_method_value)
+        normalized_payment = payment_method_value.strip().lower()
+        if normalized_payment == "cod":
+            query = query.filter(
+                Order.payment_method.in_(["cod", "cash", "cash_on_delivery", "cash-on-delivery"])
+            )
+        else:
+            query = query.filter(Order.payment_method == payment_method_value)
     
     # Handle date filters (camelCase or snake_case)
     date_from_value = dateFrom or date_from
