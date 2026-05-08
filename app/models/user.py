@@ -75,6 +75,7 @@ class User(Base):
     
     # Activity tracking
     last_active_at = Column(DateTime, nullable=True)
+    fcm_token = Column(Text, nullable=True)
     
     kyc_status = Column(KYCStatusType(), default=KYCStatus.NOT_VERIFIED, nullable=False)
     kyc_verified_at = Column(DateTime, nullable=True)

@@ -14,8 +14,13 @@ from app.models.wallet import Wallet, WalletTransaction
 from app.schemas.wallet import AddMoneyRequest
 from app.utils.security import verify_password, get_password_hash
 from decimal import Decimal
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class FCMTokenUpdate(BaseModel):
+    token: str
 
 
 @router.get("/profile", response_model=ResponseModel)
@@ -384,6 +389,22 @@ def update_profile(
         data=profile_data,
         message="Profile updated successfully"
     )
+
+
+@router.post("/fcm-token", response_model=ResponseModel)
+def update_fcm_token(
+    payload: FCMTokenUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Store/refresh current user's Firebase Cloud Messaging token."""
+    token = (payload.token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="FCM token is required")
+
+    current_user.fcm_token = token
+    db.commit()
+    return ResponseModel(success=True, message="FCM token updated successfully")
 
 
 @router.post("/change-password", response_model=ResponseModel)

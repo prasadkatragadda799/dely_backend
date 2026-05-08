@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     SELLER_EMAIL: str = os.getenv("SELLER_EMAIL", "company@example.com")
     # Optional absolute URL for invoice / admin (e.g. CDN or public uploads path)
     SELLER_LOGO_URL: str = os.getenv("SELLER_LOGO_URL", "")
+    
+    # Push notifications (Firebase Cloud Messaging)
+    FCM_SERVICE_ACCOUNT_PATH: str = os.getenv("FCM_SERVICE_ACCOUNT_PATH", "")
 
     model_config = SettingsConfigDict(
         env_file=".env",
