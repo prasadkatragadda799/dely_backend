@@ -68,3 +68,7 @@ htmlcov/
 
 # Render
 .render/
+
+# Firebase service account credentials
+*-firebase-adminsdk-*.json
+firebase-adminsdk*.json
