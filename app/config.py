@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     GST_VERIFICATION_API_URL: str = "https://api.gst.gov.in"
     GST_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    GOOGLE_DIRECTIONS_API_KEY: str = os.getenv("GOOGLE_DIRECTIONS_API_KEY", "")
+    GOOGLE_GEOCODING_API_KEY: str = os.getenv("GOOGLE_GEOCODING_API_KEY", "")
     TWO_FACTOR_API_KEY: str = os.getenv("TWO_FACTOR_API_KEY", "")
     PLAYSTORE_TEST_PHONE: str = os.getenv("PLAYSTORE_TEST_PHONE", "7997919145")
     PLAYSTORE_TEST_OTP: str = os.getenv("PLAYSTORE_TEST_OTP", "654321")

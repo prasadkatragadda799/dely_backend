@@ -86,9 +86,9 @@ def get_directions(
     - turn-by-turn steps (plain text)
     """
 
-    effective_api_key = (api_key or settings.GOOGLE_MAPS_API_KEY or "").strip()
+    effective_api_key = (api_key or settings.GOOGLE_DIRECTIONS_API_KEY or settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not effective_api_key:
-        raise HTTPException(status_code=500, detail="GOOGLE_MAPS_API_KEY is not configured")
+        raise HTTPException(status_code=500, detail="GOOGLE_DIRECTIONS_API_KEY is not configured")
 
     mode_normalized = (mode or "driving").lower().strip()
     # Keep it permissive but avoid obvious invalid values.
@@ -172,9 +172,9 @@ def reverse_geocode(
     Reverse-geocode coordinates into address components using Google Geocoding API.
     This is used by the mobile app to autofill delivery address.
     """
-    effective_api_key = (api_key or settings.GOOGLE_MAPS_API_KEY or "").strip()
+    effective_api_key = (api_key or settings.GOOGLE_GEOCODING_API_KEY or settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not effective_api_key:
-        raise HTTPException(status_code=500, detail="GOOGLE_MAPS_API_KEY is not configured")
+        raise HTTPException(status_code=500, detail="GOOGLE_GEOCODING_API_KEY is not configured")
 
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
@@ -270,9 +270,9 @@ def geocode_address(
     Geocode a plain address string to lat/lng using Google Geocoding API.
     Useful when an order has textual delivery_address but no coordinates.
     """
-    effective_api_key = (api_key or settings.GOOGLE_MAPS_API_KEY or "").strip()
+    effective_api_key = (api_key or settings.GOOGLE_GEOCODING_API_KEY or settings.GOOGLE_MAPS_API_KEY or "").strip()
     if not effective_api_key:
-        raise HTTPException(status_code=500, detail="GOOGLE_MAPS_API_KEY is not configured")
+        raise HTTPException(status_code=500, detail="GOOGLE_GEOCODING_API_KEY is not configured")
 
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
