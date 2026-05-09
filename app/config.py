@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     GOOGLE_DIRECTIONS_API_KEY: str = os.getenv("GOOGLE_DIRECTIONS_API_KEY", "")
     GOOGLE_GEOCODING_API_KEY: str = os.getenv("GOOGLE_GEOCODING_API_KEY", "")
     TWO_FACTOR_API_KEY: str = os.getenv("TWO_FACTOR_API_KEY", "")
+    TWO_FACTOR_OTP_TEMPLATE: str = os.getenv("TWO_FACTOR_OTP_TEMPLATE", "AUTOGEN")
     PLAYSTORE_TEST_PHONE: str = os.getenv("PLAYSTORE_TEST_PHONE", "7997919145")
     PLAYSTORE_TEST_OTP: str = os.getenv("PLAYSTORE_TEST_OTP", "654321")
     PLAYSTORE_TEST_REQUEST_ID: str = os.getenv(

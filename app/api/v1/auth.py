@@ -107,7 +107,9 @@ def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> Respo
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
-    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+    template = settings.TWO_FACTOR_OTP_TEMPLATE
+    otp_path = f"AUTOGEN/{template}" if template and template != "AUTOGEN" else "AUTOGEN"
+    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/{otp_path}"
     logger.info("[auth.register] sending OTP phone=%s", _mask_phone(normalized))
     resp = requests.get(url, timeout=10)
     data = resp.json() if resp.content else {}
@@ -475,7 +477,9 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
             detail="TWO_FACTOR_API_KEY is not configured",
         )
 
-    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/AUTOGEN"
+    template = settings.TWO_FACTOR_OTP_TEMPLATE
+    otp_path = f"AUTOGEN/{template}" if template and template != "AUTOGEN" else "AUTOGEN"
+    url = f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/{normalized}/{otp_path}"
     try:
         resp = requests.get(url, timeout=10)
         data = resp.json() if resp.content else {}
