@@ -56,17 +56,15 @@ class Settings(BaseSettings):
     GOOGLE_GEOCODING_API_KEY: str = os.getenv("GOOGLE_GEOCODING_API_KEY", "")
     TWO_FACTOR_API_KEY: str = os.getenv("TWO_FACTOR_API_KEY", "")
     TWO_FACTOR_OTP_TEMPLATE: str = os.getenv("TWO_FACTOR_OTP_TEMPLATE", "AUTOGEN")
-    PLAYSTORE_TEST_PHONE: str = os.getenv("PLAYSTORE_TEST_PHONE", "7997919145")
-    PLAYSTORE_TEST_OTP: str = os.getenv("PLAYSTORE_TEST_OTP", "654321")
-    PLAYSTORE_TEST_REQUEST_ID: str = os.getenv(
-        "PLAYSTORE_TEST_REQUEST_ID",
-        "PLAYSTORE-OTP-SESSION",
-    )
     
     # Payment Gateway
     PAYMENT_GATEWAY: str = "razorpay"
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+
+    # Cashfree VRS (GST / identity verification)
+    CASHFREE_CLIENT_ID: str = os.getenv("CASHFREE_CLIENT_ID", "")
+    CASHFREE_CLIENT_SECRET: str = os.getenv("CASHFREE_CLIENT_SECRET", "")
     
     # File Upload
     UPLOAD_DIR: str = "./uploads"

@@ -68,4 +68,5 @@ class Product(Base):
     cart_items = relationship("Cart", back_populates="product", cascade="all, delete-orphan")
     order_items = relationship("OrderItem", back_populates="product")
     wishlists = relationship("Wishlist", back_populates="product", cascade="all, delete-orphan")
+    service_areas = relationship("ProductServiceArea", back_populates="product", cascade="all, delete-orphan")
 

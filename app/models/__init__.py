@@ -22,6 +22,7 @@ from app.models.wallet import Wallet, WalletTransaction
 from app.models.settings import Settings
 from app.models.delivery_person import DeliveryPerson
 from app.models.division import Division
+from app.models.product_service_area import ProductServiceArea
 
 __all__ = [
     "User",
@@ -50,5 +51,6 @@ __all__ = [
     "Settings",
     "DeliveryPerson",
     "Division",
+    "ProductServiceArea",
 ]
 

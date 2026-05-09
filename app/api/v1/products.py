@@ -6,6 +6,7 @@ from app.api.deps import get_current_user, require_kyc_verified
 from app.schemas.product import ProductResponse, ProductListResponse
 from app.schemas.common import ResponseModel, PaginatedResponse, PaginationModel
 from app.models.product import Product
+from app.models.product_service_area import ProductServiceArea
 from app.models.company import Company
 from app.models.category import Category
 from app.models.division import Division
@@ -73,6 +74,7 @@ def get_products(
     max_price: Optional[Decimal] = None,
     sort: Optional[str] = Query("created_at", pattern="^(price_asc|price_desc|name|popularity|created_at)$"),
     featured: Optional[bool] = None,
+    pincode: Optional[str] = Query(None, description="Customer's delivery pincode — filters out products not serviceable there."),
     current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
@@ -135,7 +137,25 @@ def get_products(
         query = query.filter(effective_selling_price <= max_price)
     if featured is not None:
         query = query.filter(Product.is_featured == featured)
-    
+    if pincode:
+        # Keep products that have NO service-area rows (unrestricted) OR have a row matching this pincode
+        has_any_restriction = (
+            db.query(ProductServiceArea.product_id)
+            .filter(ProductServiceArea.product_id == Product.id)
+            .correlate(Product)
+            .exists()
+        )
+        pincode_matches = (
+            db.query(ProductServiceArea.product_id)
+            .filter(
+                ProductServiceArea.product_id == Product.id,
+                ProductServiceArea.pincode == pincode.strip(),
+            )
+            .correlate(Product)
+            .exists()
+        )
+        query = query.filter(or_(~has_any_restriction, pincode_matches))
+
     # Apply sorting
     if sort == "price_asc":
         order_by = effective_selling_price.asc()

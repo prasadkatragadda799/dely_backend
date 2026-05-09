@@ -42,19 +42,6 @@ def _normalize_phone_digits(phone_raw: str) -> str:
     return "".join(ch for ch in str(phone_raw or "").strip() if ch.isdigit())
 
 
-def _is_playstore_test_phone(phone_raw: str) -> bool:
-    """
-    Fixed OTP (no 2Factor SMS) when digits match PLAYSTORE_TEST_PHONE
-    (10 digits or with leading 91). Applies in all environments, including production.
-    """
-    normalized = _normalize_phone_digits(phone_raw)
-    base = _normalize_phone_digits(settings.PLAYSTORE_TEST_PHONE)
-    if not base:
-        return False
-    with_cc = f"91{base}"
-    return normalized in {base, with_cc}
-
-
 def _mask_phone(phone_raw: str) -> str:
     n = _normalize_phone_digits(phone_raw)
     if len(n) <= 4:
@@ -78,18 +65,6 @@ def _check_rate_limit(bucket: dict[str, list[float]], key: str, limit: int, wind
 
 def _finalize_registration_otp(db: Session, user: User, phone_raw: str) -> ResponseModel:
     """Send 2Factor OTP after user row exists; delete user if OTP cannot be sent."""
-    if _is_playstore_test_phone(phone_raw):
-        logger.info("[auth.register] test OTP bypass active phone=%s", _mask_phone(phone_raw))
-        return ResponseModel(
-            success=True,
-            data={
-                "request_id": settings.PLAYSTORE_TEST_REQUEST_ID,
-                "user_id": str(user.id),
-                "phone": user.phone,
-            },
-            message="Registration successful. OTP sent.",
-        )
-
     if not settings.TWO_FACTOR_API_KEY:
         logger.error("[auth.register] TWO_FACTOR_API_KEY missing")
         db.delete(user)
@@ -211,7 +186,7 @@ async def register_multipart(
         business_name=business_name.strip(),
         password=password,
         confirm_password=confirm_password,
-        gst_number=(gst_number or "").strip() or None,
+        gst_number=(gst_number or "").strip().upper() or None,
         fssai_number=(fssai_number or "").strip() or None,
         gst_certificate=None,
         fssai_license=None,
@@ -463,14 +438,6 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
     _check_rate_limit(_otp_send_rate, f"send:{normalized}", OTP_SEND_LIMIT, OTP_SEND_WINDOW_SEC)
 
-    if _is_playstore_test_phone(phone):
-        logger.info("[auth.send_otp] test OTP bypass active phone=%s", _mask_phone(phone))
-        return ResponseModel(
-            success=True,
-            data={"request_id": settings.PLAYSTORE_TEST_REQUEST_ID},
-            message="OTP sent",
-        )
-
     if not settings.TWO_FACTOR_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -556,33 +523,26 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
     _check_rate_limit(_otp_verify_rate, f"verify:{normalized}", OTP_VERIFY_LIMIT, OTP_VERIFY_WINDOW_SEC)
 
-    is_playstore_test = _is_playstore_test_phone(phone_raw)
-    if is_playstore_test:
-        if request_id != settings.PLAYSTORE_TEST_REQUEST_ID:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP session")
-        if otp != settings.PLAYSTORE_TEST_OTP:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
-    else:
-        if not settings.TWO_FACTOR_API_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="TWO_FACTOR_API_KEY is not configured",
-            )
-        verify_url = (
-            f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/VERIFY/{request_id}/{otp}"
+    if not settings.TWO_FACTOR_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="TWO_FACTOR_API_KEY is not configured",
         )
-        try:
-            resp = requests.get(verify_url, timeout=10)
-            data = resp.json() if resp.content else {}
-        except Exception:
-            logger.exception("[auth.verify_otp] provider verify failed")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to verify OTP",
-            )
+    verify_url = (
+        f"https://2factor.in/API/V1/{settings.TWO_FACTOR_API_KEY}/SMS/VERIFY/{request_id}/{otp}"
+    )
+    try:
+        resp = requests.get(verify_url, timeout=10)
+        data = resp.json() if resp.content else {}
+    except Exception:
+        logger.exception("[auth.verify_otp] provider verify failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify OTP",
+        )
 
-        if (data or {}).get("Status") != "Success":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
+    if (data or {}).get("Status") != "Success":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
 
     # OTP verified: login user by phone
     # Phones in DB may include '+'/'spaces; try both raw and normalized.

@@ -14,6 +14,7 @@ from app.schemas.admin_product import (
 )
 from app.schemas.common import ResponseModel
 from app.models.product import Product
+from app.models.product_service_area import ProductServiceArea
 from app.models.cart import Cart
 from app.models.wishlist import Wishlist
 from app.models.order import OrderItem
@@ -1250,3 +1251,116 @@ async def upload_product_images(
         message="Images uploaded successfully"
     )
 
+
+# ── Service Area (location-based visibility) ─────────────────────────────────
+
+@router.get("/{product_id}/service-area", response_model=ResponseModel)
+async def get_product_service_area(
+    product_id: str,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    Get the serviceable pincodes for a product.
+    An empty list means the product is available platform-wide (no restriction).
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    areas = db.query(ProductServiceArea).filter(ProductServiceArea.product_id == product_id).all()
+    return ResponseModel(
+        success=True,
+        data={
+            "productId": product_id,
+            "productName": product.name,
+            "serviceAreas": [
+                {"pincode": a.pincode, "city": a.city, "state": a.state}
+                for a in areas
+            ],
+            "isRestricted": len(areas) > 0,
+        },
+        message="Service area retrieved successfully",
+    )
+
+
+@router.put("/{product_id}/service-area", response_model=ResponseModel)
+async def update_product_service_area(
+    product_id: str,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    Replace the serviceable pincodes for a product.
+
+    Body (JSON):
+    {
+        "pincodes": [
+            {"pincode": "500001", "city": "Hyderabad", "state": "Telangana"},
+            {"pincode": "500002"}
+        ]
+    }
+
+    Send an empty list `"pincodes": []` to remove all restrictions (platform-wide).
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    body = await request.json()
+    pincodes = body.get("pincodes", [])
+
+    if not isinstance(pincodes, list):
+        raise HTTPException(status_code=400, detail="'pincodes' must be a list")
+
+    # Validate
+    seen = set()
+    for entry in pincodes:
+        if not isinstance(entry, dict) or "pincode" not in entry:
+            raise HTTPException(status_code=400, detail="Each entry must have a 'pincode' field")
+        pc = str(entry["pincode"]).strip()
+        if not pc:
+            raise HTTPException(status_code=400, detail="Pincode cannot be empty")
+        if pc in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicate pincode: {pc}")
+        seen.add(pc)
+
+    # Replace all existing areas
+    db.query(ProductServiceArea).filter(ProductServiceArea.product_id == product_id).delete()
+
+    new_areas = []
+    for entry in pincodes:
+        area = ProductServiceArea(
+            product_id=product_id,
+            pincode=str(entry["pincode"]).strip(),
+            city=(entry.get("city") or "").strip() or None,
+            state=(entry.get("state") or "").strip() or None,
+        )
+        db.add(area)
+        new_areas.append(area)
+
+    db.commit()
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="product_service_area_updated",
+        entity_type="product",
+        entity_id=UUID(product_id),
+        details={"pincode_count": len(new_areas)},
+        request=request,
+    )
+
+    return ResponseModel(
+        success=True,
+        data={
+            "productId": product_id,
+            "serviceAreas": [
+                {"pincode": a.pincode, "city": a.city, "state": a.state}
+                for a in new_areas
+            ],
+            "isRestricted": len(new_areas) > 0,
+        },
+        message="Service area updated successfully",
+    )

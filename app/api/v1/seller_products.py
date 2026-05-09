@@ -15,6 +15,7 @@ from app.schemas.common import ResponseModel
 from app.schemas.admin_product import AdminProductUpdate
 from app.models.admin import Admin, AdminRole
 from app.models.product import Product
+from app.models.product_service_area import ProductServiceArea
 from app.models.category import Category
 from app.models.brand import Brand
 from app.models.company import Company
@@ -688,4 +689,123 @@ async def list_seller_companies(
         success=True,
         data=company_list,
         message="Companies retrieved successfully"
+    )
+
+
+# ── Service Area (location-based visibility) ─────────────────────────────────
+
+@router.get("/{product_id}/service-area", response_model=ResponseModel)
+async def get_seller_product_service_area(
+    product_id: str,
+    seller: Admin = Depends(require_seller_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    Get serviceable pincodes for a product.
+    Sellers can only view service areas for their own products.
+    An empty list means no restriction (available platform-wide).
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if not check_seller_product_access(seller, product):
+        raise HTTPException(status_code=403, detail="Access denied. You can only manage products created by you.")
+
+    areas = db.query(ProductServiceArea).filter(ProductServiceArea.product_id == product_id).all()
+    return ResponseModel(
+        success=True,
+        data={
+            "productId": product_id,
+            "productName": product.name,
+            "serviceAreas": [
+                {"pincode": a.pincode, "city": a.city, "state": a.state}
+                for a in areas
+            ],
+            "isRestricted": len(areas) > 0,
+        },
+        message="Service area retrieved successfully",
+    )
+
+
+@router.put("/{product_id}/service-area", response_model=ResponseModel)
+async def update_seller_product_service_area(
+    product_id: str,
+    request: Request,
+    seller: Admin = Depends(require_seller_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    Replace serviceable pincodes for a product.
+    Sellers can only update service areas for their own products.
+
+    Body:
+    {
+        "pincodes": [
+            {"pincode": "500001", "city": "Hyderabad", "state": "Telangana"}
+        ]
+    }
+
+    Send `"pincodes": []` to remove all restrictions (platform-wide delivery).
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    if not check_seller_product_access(seller, product):
+        raise HTTPException(status_code=403, detail="Access denied. You can only manage products created by you.")
+
+    body = await request.json()
+    pincodes = body.get("pincodes", [])
+
+    if not isinstance(pincodes, list):
+        raise HTTPException(status_code=400, detail="'pincodes' must be a list")
+
+    seen = set()
+    for entry in pincodes:
+        if not isinstance(entry, dict) or "pincode" not in entry:
+            raise HTTPException(status_code=400, detail="Each entry must have a 'pincode' field")
+        pc = str(entry["pincode"]).strip()
+        if not pc:
+            raise HTTPException(status_code=400, detail="Pincode cannot be empty")
+        if pc in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicate pincode: {pc}")
+        seen.add(pc)
+
+    db.query(ProductServiceArea).filter(ProductServiceArea.product_id == product_id).delete()
+
+    new_areas = []
+    for entry in pincodes:
+        area = ProductServiceArea(
+            product_id=product_id,
+            pincode=str(entry["pincode"]).strip(),
+            city=(entry.get("city") or "").strip() or None,
+            state=(entry.get("state") or "").strip() or None,
+        )
+        db.add(area)
+        new_areas.append(area)
+
+    db.commit()
+
+    log_admin_activity(
+        db=db,
+        admin_id=seller.id,
+        action="product_service_area_updated",
+        entity_type="product",
+        entity_id=UUID(str(product.id)),
+        details={"pincode_count": len(new_areas)},
+        request=request,
+    )
+
+    return ResponseModel(
+        success=True,
+        data={
+            "productId": product_id,
+            "serviceAreas": [
+                {"pincode": a.pincode, "city": a.city, "state": a.state}
+                for a in new_areas
+            ],
+            "isRestricted": len(new_areas) > 0,
+        },
+        message="Service area updated successfully",
     )
