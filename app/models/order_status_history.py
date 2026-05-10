@@ -9,9 +9,10 @@ from app.database import Base
 
 class OrderStatusHistory(Base):
     __tablename__ = "order_status_history"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    # order_id matches Order.id which is String(36), not a native UUID column
+    order_id = Column(String(36), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     status = Column(SQLEnum(OrderStatus), nullable=False)
     changed_by = Column(UUID(as_uuid=True), ForeignKey("admins.id"), nullable=True)
     notes = Column(Text, nullable=True)

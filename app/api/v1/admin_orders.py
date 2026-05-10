@@ -521,9 +521,8 @@ async def update_order_status(
     # Create status history entry
     from uuid import UUID as UUIDType
     try:
-        order_uuid = UUIDType(order_id_str)
         status_history = OrderStatusHistory(
-            order_id=order_uuid,
+            order_id=order_id_str,
             status=order_status,
             changed_by=admin.id,
             notes=status_data.notes
