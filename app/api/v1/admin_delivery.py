@@ -274,6 +274,16 @@ async def assign_order_to_delivery(
     
     # Assign order
     order.delivery_person_id = delivery_person.id
+
+    # Cache scalar fields BEFORE db.commit() — once commit fires, SQLAlchemy expires all
+    # ORM attributes and accessing them later triggers a fresh SELECT that fails if any
+    # subsequent operation (e.g. a notification) leaves the transaction in an aborted state.
+    order_id_str = str(order.id)
+    order_number_val = order.order_number
+    order_user_id = order.user_id
+    delivery_person_id_val = delivery_person.id
+    delivery_person_name = delivery_person.name
+
     db.commit()
 
     # Log activity
@@ -284,9 +294,9 @@ async def assign_order_to_delivery(
         entity_type="order",
         entity_id=None,
         details={
-            "order_id": order.id,
-            "order_number": order.order_number,
-            "delivery_person": delivery_person.name
+            "order_id": order_id_str,
+            "order_number": order_number_val,
+            "delivery_person": delivery_person_name
         },
         request=request
     )
@@ -296,42 +306,46 @@ async def assign_order_to_delivery(
         from app.utils.notification_helper import notify_delivery_person, create_notification
         notify_delivery_person(
             db=db,
-            delivery_person_id=delivery_person.id,
+            delivery_person_id=delivery_person_id_val,
             type="delivery_assignment",
-            title=f"New delivery: Order #{order.order_number}",
+            title=f"New delivery: Order #{order_number_val}",
             message="You have a new delivery assignment. Open the app to view details.",
             data={
-                "order_id": str(order.id),
-                "order_number": order.order_number,
+                "order_id": order_id_str,
+                "order_number": order_number_val,
                 "action": "open_delivery",
             },
         )
 
         # Also let the customer know their order is on the way to a courier.
-        if order.user_id:
+        if order_user_id:
             create_notification(
                 db=db,
-                user_id=str(order.user_id),
+                user_id=str(order_user_id),
                 type="delivery",
-                title=f"Order #{order.order_number} assigned to courier",
-                message=f"{delivery_person.name} will be delivering your order soon.",
+                title=f"Order #{order_number_val} assigned to courier",
+                message=f"{delivery_person_name} will be delivering your order soon.",
                 data={
-                    "order_id": str(order.id),
-                    "order_number": order.order_number,
-                    "delivery_person": delivery_person.name,
+                    "order_id": order_id_str,
+                    "order_number": order_number_val,
+                    "delivery_person": delivery_person_name,
                 },
             )
     except Exception:
-        # Notification failures must not break the assignment response.
-        pass
+        # Roll back any partial DB state from the notification helpers so the response
+        # path below doesn't blow up with InFailedSqlTransaction on attribute refresh.
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     return ResponseModel(
         success=True,
         data={
-            "orderId": order.id,
-            "deliveryPerson": delivery_person.name
+            "orderId": order_id_str,
+            "deliveryPerson": delivery_person_name
         },
-        message=f"Order assigned to {delivery_person.name}"
+        message=f"Order assigned to {delivery_person_name}"
     )
 
 
