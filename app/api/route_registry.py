@@ -23,6 +23,7 @@ from app.api.v1 import (
     maps,
     payments,
     stats,
+    location_check,
 )
 from app.api.v1 import (
     admin_auth,
@@ -76,6 +77,7 @@ def register_routes(app: FastAPI) -> None:
         (maps.router, "/api/v1/maps", ["Maps"]),
         (payments.router, "/api/v1/payments", ["Payments"]),
         (stats.router, "/api/v1/stats", ["Statistics"]),
+        (location_check.router, "/api/v1/location", ["Location"]),
     ]
     for router, prefix, tags in api_v1_routes:
         app.include_router(router, prefix=prefix, tags=tags)

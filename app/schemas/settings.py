@@ -64,6 +64,18 @@ class NotificationSettings(BaseModel):
     smsTemplates: Optional[SmsTemplates] = None
 
 
+# Service Location Settings
+class ServiceLocation(BaseModel):
+    pincode: str
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+
+
+class ServiceLocationSettings(BaseModel):
+    enabled: Optional[bool] = False
+    locations: Optional[List[ServiceLocation]] = []
+
+
 # Unified Settings
 class AllSettings(BaseModel):
     general: Optional[GeneralSettings] = None

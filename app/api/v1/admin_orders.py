@@ -477,6 +477,13 @@ async def update_order_status(
             )
 
     old_status = order.status
+    # Cache scalar fields NOW before any db.commit() expires ORM attributes.
+    # After commit(), SQLAlchemy marks all attached objects as "expired", and
+    # accessing them afterwards triggers lazy-loads that can fail mid-flow.
+    order_user_id = order.user_id
+    order_number = order.order_number
+    order_id_val = str(order.id)
+
     db_literals = _get_orderstatus_literals(db)
     try:
         db_status_literal = _resolve_db_status_literal(order_status.value, db_literals)
@@ -512,8 +519,6 @@ async def update_order_status(
         )
 
     # Create status history entry
-    # Note: OrderStatusHistory uses UUID for order_id, but Order.id is String(36)
-    # We need to handle this conversion
     from uuid import UUID as UUIDType
     try:
         order_uuid = UUIDType(order_id_str)
@@ -526,17 +531,15 @@ async def update_order_status(
         db.add(status_history)
         db.commit()
     except Exception as e:
-        # Keep status update successful even if history logging fails.
-        # Important: rollback failed transaction so subsequent DB calls don't crash.
         db.rollback()
         print(f"Warning: Could not create status history entry: {e}")
-    
+
     # Log activity
     try:
         entity_uuid = UUIDType(order_id_str)
     except (ValueError, AttributeError):
         entity_uuid = order_id_str
-    
+
     try:
         log_admin_activity(
             db=db,
@@ -554,23 +557,20 @@ async def update_order_status(
     except Exception as e:
         db.rollback()
         print(f"Warning: Could not log admin activity: {e}")
-    
-    # Refresh order to get updated status history
-    db.refresh(order)
 
     # Notify user about order status change
-    if order.user_id:
+    if order_user_id:
         _order_notif_type = "delivery" if order_status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED) else "order"
-        _title = f"Order #{order.order_number} {order_status.value.replace('_', ' ')}"
+        _title = f"Order #{order_number} {order_status.value.replace('_', ' ')}"
         _msg = f"Your order has been updated to: {order_status.value.replace('_', ' ')}."
         try:
             create_notification(
                 db=db,
-                user_id=order.user_id,
+                user_id=order_user_id,
                 type=_order_notif_type,
                 title=_title,
                 message=_msg,
-                data={"order_id": str(order.id), "order_number": order.order_number, "status": order_status.value},
+                data={"order_id": order_id_val, "order_number": order_number, "status": order_status.value},
             )
         except Exception:
             pass
@@ -578,7 +578,7 @@ async def update_order_status(
     return ResponseModel(
         success=True,
         data={
-            "id": str(order.id),
+            "id": order_id_val,
             "status": requested_status,
             "order_status": requested_status
         },

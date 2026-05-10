@@ -9,7 +9,8 @@ from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.schemas.settings import (
     GeneralSettings, PaymentSettings, DeliverySettings,
-    TaxSettings, NotificationSettings, AllSettings
+    TaxSettings, NotificationSettings, AllSettings,
+    ServiceLocationSettings
 )
 from app.models.settings import Settings
 from app.models.admin import Admin, AdminRole
@@ -441,6 +442,65 @@ async def update_notification_settings(
     return ResponseModel(
         success=True,
         message="Notification settings updated successfully"
+    )
+
+
+# ===== Service Location Settings =====
+
+@router.get("/service-locations", response_model=ResponseModel)
+async def get_service_location_settings(
+    admin: Admin = Depends(get_current_active_admin),
+    db: Session = Depends(get_db)
+):
+    """Get service location restriction settings"""
+    settings = get_setting(db, "service_locations")
+    if not settings:
+        settings = {"enabled": False, "locations": []}
+    return ResponseModel(
+        success=True,
+        data=settings,
+        message="Service location settings retrieved successfully"
+    )
+
+
+@router.put("/service-locations", response_model=ResponseModel)
+async def update_service_location_settings(
+    settings_data: ServiceLocationSettings,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Update service location restriction settings"""
+    current_settings = get_setting(db, "service_locations") or {}
+
+    if settings_data.enabled is not None:
+        current_settings["enabled"] = settings_data.enabled
+
+    if settings_data.locations is not None:
+        current_settings["locations"] = [
+            {
+                "pincode": loc.pincode.strip(),
+                "city": (loc.city or "").strip(),
+                "state": (loc.state or "").strip(),
+            }
+            for loc in settings_data.locations
+        ]
+
+    update_setting(db, "service_locations", current_settings)
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="settings_updated",
+        entity_type="settings",
+        entity_id=None,
+        details={"section": "service_locations"},
+        request=request
+    )
+
+    return ResponseModel(
+        success=True,
+        message="Service location settings updated successfully"
     )
 
 

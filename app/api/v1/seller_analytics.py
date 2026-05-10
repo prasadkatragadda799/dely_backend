@@ -84,6 +84,7 @@ async def get_seller_dashboard(
                 .filter(
                     Order.created_at >= start,
                     Order.created_at <= end,
+                    Order.status != OrderStatus.CANCELLED,
                 )
             )
             if scope_filter is not None:
@@ -173,92 +174,95 @@ async def get_seller_revenue(
     seller: Admin = Depends(require_seller_or_above),
     db: Session = Depends(get_db),
 ):
-    """Revenue time-series scoped to the seller's products."""
+    """Revenue time-series scoped to the seller's products (single aggregated query per period type)."""
     try:
         start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
         scope_filter = _seller_product_filter(seller)
 
-        def _period_revenue(start, end):
-            q = (
-                db.query(func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0))
-                .join(Product, OrderItem.product_id == Product.id)
-                .join(Order, OrderItem.order_id == Order.id)
-                .filter(
-                    Order.created_at >= start,
-                    Order.created_at <= end,
-                    Order.status != OrderStatus.CANCELLED,
-                )
-            )
-            if scope_filter is not None:
-                q = q.filter(scope_filter)
-            return float(q.scalar() or 0.0)
+        # Use daily truncation for week/month periods, monthly for quarter/year/all.
+        # This gives us one DB round-trip instead of N (2×periods) round-trips.
+        trunc_unit = "day" if period in ("week", "month") else "month"
 
-        def _period_orders(start, end):
-            q = (
-                db.query(func.count(distinct(Order.id)))
-                .join(OrderItem, Order.id == OrderItem.order_id)
-                .join(Product, OrderItem.product_id == Product.id)
-                .filter(
-                    Order.created_at >= start,
-                    Order.created_at <= end,
-                )
+        base_q = (
+            db.query(
+                func.date_trunc(trunc_unit, Order.created_at).label("bucket"),
+                func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0.0).label("revenue"),
+                func.count(distinct(Order.id)).label("orders"),
             )
-            if scope_filter is not None:
-                q = q.filter(scope_filter)
-            return int(q.scalar() or 0)
+            .select_from(OrderItem)
+            .join(Product, OrderItem.product_id == Product.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .filter(
+                Order.created_at >= start_dt,
+                Order.created_at <= end_dt,
+                Order.status != OrderStatus.CANCELLED,
+            )
+        )
+        if scope_filter is not None:
+            base_q = base_q.filter(scope_filter)
+
+        rows = base_q.group_by(func.date_trunc(trunc_unit, Order.created_at)).all()
+
+        # Build lookup keyed by date (first day of the bucket)
+        data_by_date: dict = {}
+        for row in rows:
+            bucket_date = row.bucket.date() if hasattr(row.bucket, "date") else row.bucket
+            data_by_date[bucket_date] = {
+                "revenue": float(row.revenue or 0),
+                "orders": int(row.orders or 0),
+            }
+
+        def _lookup_day(dt) -> dict:
+            key = dt.date() if hasattr(dt, "date") else dt
+            return data_by_date.get(key, {"revenue": 0.0, "orders": 0})
+
+        def _lookup_month(dt) -> dict:
+            key = (dt.date() if hasattr(dt, "date") else dt).replace(day=1)
+            return data_by_date.get(key, {"revenue": 0.0, "orders": 0})
 
         result = []
 
         if period == "week":
             for i in range(7):
                 day_start = start_dt + timedelta(days=i)
-                day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
+                d = _lookup_day(day_start)
                 result.append({
                     "period": format_period_label("week", day_start),
                     "name": format_period_label("week", day_start),
-                    "revenue": round(_period_revenue(day_start, day_end), 2),
-                    "orders": _period_orders(day_start, day_end),
+                    "revenue": round(d["revenue"], 2),
+                    "orders": d["orders"],
                 })
 
         elif period == "month":
+            # Sum daily buckets across each 7-day window
             for i in range(4):
                 week_start = start_dt + timedelta(days=i * 7)
-                week_end = min(week_start + timedelta(days=7) - timedelta(seconds=1), end_dt)
+                rev, ords = 0.0, 0
+                for j in range(7):
+                    day = week_start + timedelta(days=j)
+                    if day <= end_dt:
+                        d = _lookup_day(day)
+                        rev += d["revenue"]
+                        ords += d["orders"]
                 result.append({
                     "period": format_period_label("month", week_start, i),
                     "name": format_period_label("month", week_start, i),
-                    "revenue": round(_period_revenue(week_start, week_end), 2),
-                    "orders": _period_orders(week_start, week_end),
+                    "revenue": round(rev, 2),
+                    "orders": ords,
                 })
 
-        elif period == "quarter":
-            for i in range(3):
+        elif period in ("quarter", "year"):
+            num_months = 3 if period == "quarter" else 12
+            for i in range(num_months):
                 month_start = (start_dt.replace(day=1) + timedelta(days=32 * i)).replace(day=1)
-                if month_start.month == 12:
-                    month_end = month_start.replace(year=month_start.year + 1, month=1, day=1) - timedelta(seconds=1)
-                else:
-                    month_end = month_start.replace(month=month_start.month + 1, day=1) - timedelta(seconds=1)
-                month_end = min(month_end, end_dt)
+                if month_start > end_dt:
+                    break
+                d = _lookup_month(month_start)
                 result.append({
-                    "period": format_period_label("quarter", month_start),
-                    "name": format_period_label("quarter", month_start),
-                    "revenue": round(_period_revenue(month_start, month_end), 2),
-                    "orders": _period_orders(month_start, month_end),
-                })
-
-        elif period == "year":
-            for i in range(12):
-                month_start = (start_dt.replace(day=1) + timedelta(days=32 * i)).replace(day=1)
-                if month_start.month == 12:
-                    month_end = month_start.replace(year=month_start.year + 1, month=1, day=1) - timedelta(seconds=1)
-                else:
-                    month_end = month_start.replace(month=month_start.month + 1, day=1) - timedelta(seconds=1)
-                month_end = min(month_end, end_dt)
-                result.append({
-                    "period": format_period_label("year", month_start),
-                    "name": format_period_label("year", month_start),
-                    "revenue": round(_period_revenue(month_start, month_end), 2),
-                    "orders": _period_orders(month_start, month_end),
+                    "period": format_period_label(period, month_start),
+                    "name": format_period_label(period, month_start),
+                    "revenue": round(d["revenue"], 2),
+                    "orders": d["orders"],
                 })
 
         else:  # all
@@ -267,16 +271,12 @@ async def get_seller_revenue(
                 return ResponseModel(success=True, data=[], message="No order data available")
             current_month = first_q.replace(day=1)
             while current_month <= end_dt:
-                if current_month.month == 12:
-                    month_end = current_month.replace(year=current_month.year + 1, month=1, day=1) - timedelta(seconds=1)
-                else:
-                    month_end = current_month.replace(month=current_month.month + 1, day=1) - timedelta(seconds=1)
-                month_end = min(month_end, end_dt)
+                d = _lookup_month(current_month)
                 result.append({
                     "period": format_period_label("all", current_month),
                     "name": format_period_label("all", current_month),
-                    "revenue": round(_period_revenue(current_month, month_end), 2),
-                    "orders": _period_orders(current_month, month_end),
+                    "revenue": round(d["revenue"], 2),
+                    "orders": d["orders"],
                 })
                 current_month = (
                     current_month.replace(year=current_month.year + 1, month=1, day=1)

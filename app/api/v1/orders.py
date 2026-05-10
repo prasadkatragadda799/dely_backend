@@ -79,7 +79,21 @@ def create_order(
         }
     elif not delivery_address:
         raise HTTPException(status_code=400, detail="Either delivery_location_id or delivery_address is required")
-    
+
+    # Validate delivery pincode against global service location restrictions
+    from app.models.settings import Settings as AppSettings
+    service_setting = db.query(AppSettings).filter(AppSettings.key == "service_locations").first()
+    if service_setting and isinstance(service_setting.value, dict) and service_setting.value.get("enabled"):
+        locations = service_setting.value.get("locations", [])
+        if locations:
+            allowed_pincodes = {loc["pincode"].strip() for loc in locations if loc.get("pincode")}
+            order_pincode = str(delivery_address.get("pincode", "")).strip()
+            if order_pincode and order_pincode not in allowed_pincodes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Delivery is not available in your location. We don't serve your pincode yet."
+                )
+
     # Calculate totals
     items_data = [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items]
     totals = calculate_order_totals(items_data, db)
