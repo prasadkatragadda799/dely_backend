@@ -545,7 +545,7 @@ async def update_order_status(
 
     # Log activity
     try:
-        entity_uuid = UUIDType(order_id_str)
+        entity_uuid = UUID(order_id_str)
     except (ValueError, AttributeError):
         entity_uuid = order_id_str
 
