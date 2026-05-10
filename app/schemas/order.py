@@ -68,8 +68,11 @@ class OrderListResponse(BaseModel):
     total: Decimal
     # Some ORM Order objects don't expose items_count; default to 0 instead of failing validation.
     items_count: int = 0
+    # Snapshot of the address the order was placed for; surfaced in the orders
+    # list UI so customers can see where each order is going without opening it.
+    delivery_address: Optional[Dict[str, Any]] = None
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 

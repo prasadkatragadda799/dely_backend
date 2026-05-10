@@ -23,6 +23,26 @@ from typing import List, Optional
 router = APIRouter()
 
 
+def _min_line_qty_for_tier(product: Product, tier: str) -> int:
+    """
+    Convert product.min_order_quantity (always in pieces) into the minimum
+    cart-line quantity for the selected price tier.
+
+    Example: pieces_per_set=12, min_order_quantity=12, tier='set' → 1 set.
+    """
+    min_order = (
+        product.min_order_quantity
+        if product.min_order_quantity
+        else (product.min_order if hasattr(product, "min_order") and product.min_order else 1)
+    )
+    min_order = max(1, int(min_order))
+    if tier == "set":
+        pcs = max(1, int(product.pieces_per_set or 1))
+        if pcs > 1 and min_order > 1 and min_order % pcs == 0:
+            return max(1, min_order // pcs)
+    return min_order
+
+
 def _category_slug_implies_home_kitchen(slug: Optional[str]) -> bool:
     """Heuristic when category.division_id is missing but slug is clearly H&K (e.g. home-care)."""
     if not slug or not str(slug).strip():
@@ -267,7 +287,10 @@ def add_to_cart(
     if stock < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
 
-    min_order = product.min_order_quantity if product.min_order_quantity else (product.min_order if hasattr(product, 'min_order') and product.min_order else 1)
+    # min_order_quantity is stored in pieces; convert to the cart line's tier units
+    # (e.g. 12 pieces → 1 set when tier='set' and pieces_per_set=12) so we don't
+    # reject legitimate increments like "+1 set" on top of an existing set line.
+    min_line_qty = _min_line_qty_for_tier(product, tier)
 
     product_division_id = str(product.division_id) if product.division_id else None
 
@@ -280,21 +303,17 @@ def add_to_cart(
     if existing_item:
         if item_data.quantity < 1:
             raise HTTPException(status_code=400, detail="Quantity must be at least 1")
-        new_line_qty = existing_item.quantity + item_data.quantity
-        if new_line_qty < min_order:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Minimum order quantity is {min_order}"
-            )
+        # No min-order check on increment: the line already passed min validation at
+        # creation, and an increment can only push the qty up.
         existing_item.quantity += item_data.quantity
         existing_item.division_id = product_division_id
         db.commit()
         db.refresh(existing_item)
     else:
-        if item_data.quantity < min_order:
+        if item_data.quantity < min_line_qty:
             raise HTTPException(
                 status_code=400,
-                detail=f"Minimum order quantity is {min_order}"
+                detail=f"Minimum order quantity is {min_line_qty}"
             )
         cart_item = Cart(
             user_id=str(current_user.id),
@@ -358,14 +377,16 @@ def update_cart_item(
     stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
     if stock < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
-    
-    min_order = product.min_order_quantity if product.min_order_quantity else (product.min_order if hasattr(product, 'min_order') and product.min_order else 1)
-    if item_data.quantity < min_order:
+
+    # Convert min_order from pieces to the line's tier units.
+    line_tier = (cart_item.price_option_key or "unit").strip().lower()
+    min_line_qty = _min_line_qty_for_tier(product, line_tier)
+    if item_data.quantity < min_line_qty:
         raise HTTPException(
             status_code=400,
-            detail=f"Minimum order quantity is {min_order}"
+            detail=f"Minimum order quantity is {min_line_qty}"
         )
-    
+
     cart_item.quantity = item_data.quantity
     db.commit()
     

@@ -57,6 +57,14 @@ class Order(Base):
     order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan", order_by="OrderStatusHistory.created_at")
 
+    @property
+    def items_count(self) -> int:
+        """Number of line items on the order. Surfaced via OrderListResponse."""
+        try:
+            return len(self.order_items) if self.order_items else 0
+        except Exception:
+            return 0
+
 
 class OrderItem(Base):
     __tablename__ = "order_items"

@@ -2,11 +2,11 @@
 Delivery Orders Endpoints
 For delivery personnel to view and manage assigned orders
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from sqlalchemy import text
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.schemas.delivery import DeliveryOrderResponse, DeliveryStatusUpdate, LocationUpdate, AvailabilityRequest
@@ -293,6 +293,116 @@ async def update_delivery_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update order status due to server error: {str(exc)}",
         )
+
+
+@router.post("/{order_id}/revert", response_model=ResponseModel)
+async def revert_order_to_hub(
+    order_id: str,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """
+    Return an in-progress delivery to the assignment pool.
+
+    Used when the courier can't complete the delivery (customer not reachable,
+    wrong address, etc.). Clears delivery_person_id and resets status to
+    CONFIRMED so admin can reassign. Only the currently assigned courier may
+    revert their own order, and only while it's still in progress.
+    """
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.delivery_person_id == delivery_person.id,
+    ).first()
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found or not assigned to you",
+        )
+
+    if order.status in (OrderStatus.DELIVERED, OrderStatus.CANCELLED):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot revert a finalized order",
+        )
+
+    reason = ""
+    if isinstance(payload, dict):
+        reason = str(payload.get("reason") or "").strip()
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    note_line = f"[{timestamp}] Reverted to hub by {delivery_person.name}"
+    if reason:
+        note_line += f": {reason}"
+    updated_notes = (
+        f"{order.notes}\n{note_line}".strip() if order.notes else note_line
+    )
+    previous_user_id = order.user_id
+    order_number = order.order_number
+
+    try:
+        # Cast to DB enum literal explicitly to survive name/value drift.
+        db.execute(
+            text(
+                "UPDATE orders "
+                "SET status = CAST(:status AS orderstatus), "
+                "    delivery_person_id = NULL, "
+                "    notes = :notes, "
+                "    updated_at = :updated_at "
+                "WHERE id = :order_id"
+            ),
+            {
+                "status": "CONFIRMED",
+                "notes": updated_notes,
+                "updated_at": datetime.utcnow(),
+                "order_id": order.id,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to revert order: {str(exc)}",
+        )
+
+    # Notify the customer that delivery is being rescheduled.
+    if previous_user_id:
+        try:
+            from app.utils.notification_helper import create_notification
+            create_notification(
+                db=db,
+                user_id=previous_user_id,
+                type="delivery",
+                title=f"Delivery rescheduled for Order #{order_number}",
+                message=(
+                    "We couldn't reach you for delivery. We'll reassign your order "
+                    "and try again shortly."
+                ),
+                data={
+                    "order_id": str(order.id),
+                    "order_number": order_number,
+                    "status": "confirmed",
+                    "reason": reason,
+                },
+            )
+        except Exception:
+            # Notification failures must not break the revert response.
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    return ResponseModel(
+        success=True,
+        data={
+            "orderId": order.id,
+            "status": "confirmed",
+            "deliveryPersonId": None,
+        },
+        message="Order returned to hub for reassignment",
+    )
 
 
 @router.post("/location", response_model=ResponseModel)
