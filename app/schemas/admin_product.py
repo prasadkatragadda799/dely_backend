@@ -29,6 +29,8 @@ class AdminProductCreate(BaseModel):
     is_available: bool = True
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
+    manufacturer_name: Optional[str] = None
+    manufacturer_address: Optional[str] = None
 
 
 class AdminProductUpdate(BaseModel):
@@ -51,6 +53,8 @@ class AdminProductUpdate(BaseModel):
     is_available: Optional[bool] = None
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
+    manufacturer_name: Optional[str] = None
+    manufacturer_address: Optional[str] = None
 
 
 class AdminBulkProductUpdate(BaseModel):
@@ -109,6 +113,8 @@ class AdminProductResponse(BaseModel):
     is_featured: bool
     is_available: bool
     expiry_date: Optional[date] = None
+    manufacturer_name: Optional[str] = None
+    manufacturer_address: Optional[str] = None
     images: List[ProductImageResponse] = Field(default_factory=list)
     variants: List[AdminProductVariantResponse] = Field(default_factory=list)
     created_at: datetime
@@ -162,6 +168,8 @@ class AdminProductResponse(BaseModel):
             'is_featured': obj.is_featured,
             'is_available': obj.is_available,
             'expiry_date': getattr(obj, 'expiry_date', None),
+            'manufacturer_name': getattr(obj, 'manufacturer_name', None),
+            'manufacturer_address': getattr(obj, 'manufacturer_address', None),
             'images': images,  # Always a list, never None
             'created_at': obj.created_at,
             'updated_at': obj.updated_at,

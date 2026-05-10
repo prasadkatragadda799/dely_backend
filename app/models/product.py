@@ -30,6 +30,8 @@ class Product(Base):
     unit = Column(String(50), nullable=False)
     pieces_per_set = Column(Integer, default=1, nullable=False)
     hsn_code = Column(String(50), nullable=True)  # HSN code for GST/tax
+    manufacturer_name = Column(String(255), nullable=True)    # Bill From: supplier/manufacturer name
+    manufacturer_address = Column(Text, nullable=True)         # Bill From: supplier/manufacturer address
     specifications = Column(JSON, nullable=True)
     is_featured = Column(Boolean, default=False, nullable=False)
     is_available = Column(Boolean, default=True, nullable=False)

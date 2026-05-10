@@ -86,6 +86,8 @@ def get_profile(
         "udyamRegistration": current_user.udyam_registration,
         "trade_certificate": current_user.trade_certificate,
         "tradeCertificate": current_user.trade_certificate,
+        "shop_photo_url": current_user.shop_photo_url,
+        "shopPhotoUrl": current_user.shop_photo_url,
         "fssai_number": current_user.fssai_number,
         "fssaiNumber": current_user.fssai_number,  # camelCase alternative
         "pan_number": current_user.pan_number,
@@ -355,6 +357,8 @@ def update_profile(
         "udyamRegistration": current_user.udyam_registration,
         "trade_certificate": current_user.trade_certificate,
         "tradeCertificate": current_user.trade_certificate,
+        "shop_photo_url": current_user.shop_photo_url,
+        "shopPhotoUrl": current_user.shop_photo_url,
         "fssai_number": current_user.fssai_number,
         "fssaiNumber": current_user.fssai_number,
         "pan_number": current_user.pan_number,

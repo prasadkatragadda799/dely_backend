@@ -165,7 +165,6 @@ async def register_multipart(
     udyam_registration: Optional[UploadFile] = File(None),
     trade_certificate: Optional[UploadFile] = File(None),
     shop_photo: Optional[UploadFile] = File(None),
-    user_id_document: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
     """
@@ -231,10 +230,6 @@ async def register_multipart(
             url = await _save_registration_upload(shop_photo, request, uid)
             if url:
                 user.shop_photo_url = url
-        if user_id_document:
-            url = await _save_registration_upload(user_id_document, request, uid)
-            if url:
-                user.user_id_document_url = url
         db.add(user)
         db.commit()
         db.refresh(user)
