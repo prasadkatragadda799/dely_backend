@@ -2,7 +2,7 @@
 Delivery Person Model
 Handles delivery personnel who can log in to mobile app and deliver orders
 """
-from sqlalchemy import Column, String, Boolean, DateTime, Float
+from sqlalchemy import Column, String, Boolean, DateTime, Float, Text
 from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime
@@ -36,6 +36,9 @@ class DeliveryPerson(Base):
     current_latitude = Column(Float, nullable=True)
     current_longitude = Column(Float, nullable=True)
     last_location_update = Column(DateTime, nullable=True)
+
+    # FCM device token for push notifications
+    fcm_token = Column(Text, nullable=True)
     
     # Timestamps
     last_login = Column(DateTime, nullable=True)

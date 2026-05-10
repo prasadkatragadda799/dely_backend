@@ -275,7 +275,7 @@ async def assign_order_to_delivery(
     # Assign order
     order.delivery_person_id = delivery_person.id
     db.commit()
-    
+
     # Log activity
     log_admin_activity(
         db=db,
@@ -290,7 +290,41 @@ async def assign_order_to_delivery(
         },
         request=request
     )
-    
+
+    # Push to the delivery person so they see the new assignment.
+    try:
+        from app.utils.notification_helper import notify_delivery_person, create_notification
+        notify_delivery_person(
+            db=db,
+            delivery_person_id=delivery_person.id,
+            type="delivery_assignment",
+            title=f"New delivery: Order #{order.order_number}",
+            message="You have a new delivery assignment. Open the app to view details.",
+            data={
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "action": "open_delivery",
+            },
+        )
+
+        # Also let the customer know their order is on the way to a courier.
+        if order.user_id:
+            create_notification(
+                db=db,
+                user_id=str(order.user_id),
+                type="delivery",
+                title=f"Order #{order.order_number} assigned to courier",
+                message=f"{delivery_person.name} will be delivering your order soon.",
+                data={
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "delivery_person": delivery_person.name,
+                },
+            )
+    except Exception:
+        # Notification failures must not break the assignment response.
+        pass
+
     return ResponseModel(
         success=True,
         data={

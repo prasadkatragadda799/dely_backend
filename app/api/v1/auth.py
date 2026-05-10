@@ -549,10 +549,26 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
         )
 
     # Activate user after successful OTP verification.
-    if not user.is_active:
+    is_first_activation = not user.is_active
+    if is_first_activation:
         user.is_active = True
         user.last_active_at = datetime.utcnow()
         db.commit()
+
+    # First-time activation → send welcome notification (in-app inbox + FCM).
+    if is_first_activation:
+        try:
+            from app.utils.notification_helper import create_notification
+            create_notification(
+                db=db,
+                user_id=str(user.id),
+                type="welcome",
+                title=f"Welcome to Delycart, {user.name.split()[0] if user.name else 'there'}!",
+                message="Your account is ready. Browse products and place your first order.",
+                data={"action": "open_home"},
+            )
+        except Exception:
+            logger.warning("Failed to send welcome notification for user %s", user.id)
 
     tokens = create_tokens(user)
 

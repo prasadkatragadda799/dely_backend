@@ -164,7 +164,26 @@ def create_order(
     from app.models.cart import Cart
     db.query(Cart).filter(Cart.user_id == str(current_user.id)).delete()
     db.commit()
-    
+
+    # Notify the customer that their order has been received.
+    try:
+        from app.utils.notification_helper import create_notification
+        create_notification(
+            db=db,
+            user_id=str(current_user.id),
+            type="order",
+            title=f"Order #{order.order_number} placed",
+            message=f"We've received your order of ₹{totals['total']:.2f}. We'll keep you posted on delivery.",
+            data={
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "status": "pending",
+            },
+        )
+    except Exception:
+        # Notification failures must never block order creation.
+        pass
+
     return ResponseModel(
         success=True,
         data=OrderResponse.model_validate(order),

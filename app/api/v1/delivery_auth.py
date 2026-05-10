@@ -251,3 +251,19 @@ async def update_delivery_person_info(
         },
         message="Profile updated successfully"
     )
+
+
+@router.post("/fcm-token", response_model=ResponseModel)
+async def update_delivery_fcm_token(
+    payload: dict,
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """Store/refresh delivery person's Firebase Cloud Messaging token."""
+    token = (payload.get("token") or "").strip() if isinstance(payload, dict) else ""
+    if not token:
+        raise HTTPException(status_code=400, detail="FCM token is required")
+
+    delivery_person.fcm_token = token
+    db.commit()
+    return ResponseModel(success=True, message="FCM token updated successfully")
