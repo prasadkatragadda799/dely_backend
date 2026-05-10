@@ -22,7 +22,6 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 _fcm_initialized = False
-_fcm_init_attempted = False
 
 
 def _resolve_service_account_path() -> Optional[str]:
@@ -49,14 +48,11 @@ def _resolve_service_account_path() -> Optional[str]:
 
 def _ensure_fcm_initialized() -> bool:
     """Initialize Firebase Admin SDK once. Returns True if usable."""
-    global _fcm_initialized, _fcm_init_attempted
+    global _fcm_initialized
 
     if _fcm_initialized:
         return True
-    if _fcm_init_attempted:
-        return False
 
-    _fcm_init_attempted = True
     sa_path = _resolve_service_account_path()
     if not sa_path:
         logger.warning(
@@ -80,6 +76,8 @@ def _ensure_fcm_initialized() -> bool:
         logger.info("FCM initialized using %s", sa_path)
         return True
     except Exception as exc:
+        # Log on each failure so misconfig is visible — but don't cache the failure,
+        # so a transient issue (file perms, missing file) recovers without restart.
         logger.exception("Failed to initialize Firebase Admin SDK: %s", exc)
         return False
 
@@ -127,10 +125,10 @@ def _send_fcm_push(
 
     try:
         message_id = messaging.send(message)
-        logger.debug("FCM sent: %s", message_id)
+        logger.info("FCM sent: %s | title=%r", message_id, title)
         return True
     except Exception as exc:
-        logger.warning("FCM send failed: %s", exc)
+        logger.warning("FCM send failed (title=%r): %s", title, exc)
         return False
 
 
