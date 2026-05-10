@@ -518,16 +518,24 @@ async def update_order_status(
             detail=f"Failed to update order status due to server error: {str(exc)}",
         )
 
-    # Create status history entry
-    from uuid import UUID as UUIDType
+    # Raw SQL INSERT — ORM sends enum .value ("confirmed") but PG native enum expects
+    # the NAME ("CONFIRMED"), causing a DataError that aborts the transaction.
     try:
-        status_history = OrderStatusHistory(
-            order_id=order_id_str,
-            status=order_status,
-            changed_by=admin.id,
-            notes=status_data.notes
+        import uuid as _uuid_mod
+        db.execute(
+            text(
+                "INSERT INTO order_status_history (id, order_id, status, changed_by, notes, created_at) "
+                "VALUES (:id, :order_id, CAST(:status AS orderstatus), :changed_by, :notes, :created_at)"
+            ),
+            {
+                "id": str(_uuid_mod.uuid4()),
+                "order_id": order_id_str,
+                "status": db_status_literal,
+                "changed_by": str(admin.id),
+                "notes": status_data.notes,
+                "created_at": datetime.utcnow(),
+            }
         )
-        db.add(status_history)
         db.commit()
     except Exception as e:
         db.rollback()
@@ -604,53 +612,81 @@ async def cancel_order(
     
     if order.status in [OrderStatus.DELIVERED, OrderStatus.COMPLETED]:
         raise HTTPException(status_code=400, detail="Cannot cancel a delivered or completed order")
-    
-    order.status = OrderStatus.CANCELLED
-    order.cancelled_at = datetime.utcnow()
-    order.cancelled_reason = cancel_data.reason
+
+    # Cache before any commit so expired ORM attributes are not accessed later.
+    order_user_id = order.user_id
+    order_number = order.order_number
+    order_id_val = str(order.id)
+
+    # Raw SQL UPDATE — ORM sends enum .value ("cancelled") but PG native enum expects
+    # the NAME ("CANCELLED"), so we use CAST to bypass the ORM type adapter.
+    db.execute(
+        text(
+            "UPDATE orders SET status = CAST(:status AS orderstatus), "
+            "cancelled_at = :cancelled_at, cancelled_reason = :cancelled_reason, "
+            "updated_at = :updated_at WHERE id = :order_id"
+        ),
+        {
+            "status": "CANCELLED",
+            "cancelled_at": datetime.utcnow(),
+            "cancelled_reason": cancel_data.reason,
+            "updated_at": datetime.utcnow(),
+            "order_id": order_id_str,
+        }
+    )
     db.commit()
-    
-    # Create status history
+
+    # Raw SQL INSERT for status history — same reason as above.
+    try:
+        import uuid as _uuid_mod
+        db.execute(
+            text(
+                "INSERT INTO order_status_history (id, order_id, status, changed_by, notes, created_at) "
+                "VALUES (:id, :order_id, CAST(:status AS orderstatus), :changed_by, :notes, :created_at)"
+            ),
+            {
+                "id": str(_uuid_mod.uuid4()),
+                "order_id": order_id_str,
+                "status": "CANCELLED",
+                "changed_by": str(admin.id),
+                "notes": cancel_data.reason,
+                "created_at": datetime.utcnow(),
+            }
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    # Log activity
     from uuid import UUID as UUIDType
     try:
-        order_uuid = UUIDType(order_id_str)
-        status_history = OrderStatusHistory(
-            order_id=order_uuid,
-            status=OrderStatus.CANCELLED,
-            changed_by=admin.id,
-            notes=cancel_data.reason
-        )
-        db.add(status_history)
-        db.commit()
-    except (ValueError, AttributeError):
-        # If UUID conversion fails, skip status history
-        pass
-    
-    # Log activity
-    try:
         entity_uuid = UUIDType(order_id_str)
-    except:
+    except Exception:
         entity_uuid = order_id_str
-    
-    log_admin_activity(
-        db=db,
-        admin_id=admin.id,
-        action="order_cancelled",
-        entity_type="order",
-        entity_id=entity_uuid,
-        details={"reason": cancel_data.reason},
-        request=request
-    )
 
-    if order.user_id:
+    try:
+        log_admin_activity(
+            db=db,
+            admin_id=admin.id,
+            action="order_cancelled",
+            entity_type="order",
+            entity_id=entity_uuid,
+            details={"reason": cancel_data.reason},
+            request=request
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"Warning: Could not log cancel activity: {e}")
+
+    if order_user_id:
         try:
             create_notification(
                 db=db,
-                user_id=order.user_id,
+                user_id=order_user_id,
                 type="order",
-                title=f"Order #{order.order_number} cancelled",
+                title=f"Order #{order_number} cancelled",
                 message="Your order has been cancelled.",
-                data={"order_id": str(order.id), "order_number": order.order_number, "status": "cancelled"},
+                data={"order_id": order_id_val, "order_number": order_number, "status": "cancelled"},
             )
         except Exception:
             pass
