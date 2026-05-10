@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     ADMIN_ROLE: str = os.getenv("ADMIN_ROLE", "super_admin")  # super_admin, admin, manager, support
     
     # Seller/Company Information for Invoices
-    SELLER_NAME: str = os.getenv("SELLER_NAME", "GRANARY WHOLESALE PRIVATE LIMITED")
+    SELLER_NAME: str = os.getenv("SELLER_NAME", "FOODISTIC MARKETING SERVICES PVT LTD")
     SELLER_ADDRESS_LINE1: str = os.getenv("SELLER_ADDRESS_LINE1", "No 331, Sarai Jagarnath")
     SELLER_ADDRESS_LINE2: str = os.getenv("SELLER_ADDRESS_LINE2", "pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh")
     SELLER_CITY: str = os.getenv("SELLER_CITY", "Azamgarh")

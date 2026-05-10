@@ -17,8 +17,8 @@ def get_seller_info() -> Dict[str, Any]:
     # For now, use environment variables or defaults
     # In production, this should come from a settings/company table
     return {
-        "name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "GRANARY WHOLESALE PRIVATE LIMITED",
-        "company_name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "GRANARY WHOLESALE PRIVATE LIMITED",
+        "name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "FOODISTIC MARKETING SERVICES PVT LTD",
+        "company_name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "FOODISTIC MARKETING SERVICES PVT LTD",
         "address_line1": settings.SELLER_ADDRESS_LINE1 if hasattr(settings, 'SELLER_ADDRESS_LINE1') else "No 331, Sarai Jagarnath",
         "address_line2": settings.SELLER_ADDRESS_LINE2 if hasattr(settings, 'SELLER_ADDRESS_LINE2') else "pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh",
         "address": f"{settings.SELLER_ADDRESS_LINE1 if hasattr(settings, 'SELLER_ADDRESS_LINE1') else 'No 331, Sarai Jagarnath'}, {settings.SELLER_ADDRESS_LINE2 if hasattr(settings, 'SELLER_ADDRESS_LINE2') else 'pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh'}",
