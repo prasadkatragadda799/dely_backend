@@ -505,6 +505,8 @@ async def update_order_status(
             },
         )
         db.commit()
+        # Detach order from session — prevents any post-commit lazy-load on the expired object.
+        db.expunge(order)
     except (StatementError, DataError, IntegrityError) as exc:
         db.rollback()
         raise HTTPException(
