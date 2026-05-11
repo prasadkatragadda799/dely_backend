@@ -18,16 +18,27 @@ from datetime import datetime
 router = APIRouter()
 
 
+_OUT_FOR_DELIVERY_SUPPORT_CACHE: dict = {}
+
+
 def _supports_out_for_delivery(db: Session) -> bool:
-    """Check if DB enum includes OUT_FOR_DELIVERY literal."""
+    """Check if DB enum includes OUT_FOR_DELIVERY literal. Cached per process."""
+    if "result" in _OUT_FOR_DELIVERY_SUPPORT_CACHE:
+        return _OUT_FOR_DELIVERY_SUPPORT_CACHE["result"]
     try:
         rows = db.execute(
             text("SELECT unnest(enum_range(NULL::orderstatus))::text")
         ).fetchall()
         allowed = {str(row[0]).upper() for row in rows}
-        return "OUT_FOR_DELIVERY" in allowed
+        result = "OUT_FOR_DELIVERY" in allowed
+        _OUT_FOR_DELIVERY_SUPPORT_CACHE["result"] = result
+        return result
     except Exception:
-        # If enum introspection fails, use conservative fallback.
+        # Must rollback so the session is not left in InFailedSqlTransaction.
+        try:
+            db.rollback()
+        except Exception:
+            pass
         return False
 
 
@@ -96,8 +107,8 @@ async def get_assigned_orders(
             "deliveryAddress": delivery_address,
             "delivery_address": delivery_address,
             "items": items,
-            "totalAmount": float(order.total_amount),
-            "total_amount": float(order.total_amount),
+            "totalAmount": float(order.total_amount or order.total or 0),
+            "total_amount": float(order.total_amount or order.total or 0),
             "createdAt": order.created_at.isoformat() if order.created_at else None,
             "created_at": order.created_at.isoformat() if order.created_at else None
         })
@@ -162,8 +173,8 @@ async def get_order_details(
         "subtotal": float(order.subtotal),
         "deliveryCharge": float(order.delivery_charge) if order.delivery_charge else 0.0,
         "delivery_charge": float(order.delivery_charge) if order.delivery_charge else 0.0,
-        "totalAmount": float(order.total_amount),
-        "total_amount": float(order.total_amount),
+        "totalAmount": float(order.total_amount or order.total or 0),
+        "total_amount": float(order.total_amount or order.total or 0),
         "paymentMethod": order.payment_method,
         "payment_method": order.payment_method,
         "paymentStatus": order.payment_status,
