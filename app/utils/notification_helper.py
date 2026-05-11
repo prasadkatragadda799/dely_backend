@@ -139,30 +139,40 @@ def create_notification(
     title: str,
     message: str,
     data: Optional[dict] = None,
-) -> Notification:
+) -> Optional[Notification]:
     """
     Create an in-app notification for a CUSTOMER user and push to their device.
 
     type: "kyc" | "order" | "delivery" | "payment" | "welcome" | "promo".
     data: optional payload for navigation, e.g. {"order_id": ..., "order_number": ...}.
 
-    Always commits and returns the persisted record. FCM failures are logged but don't raise.
+    Returns the persisted record, or None if the DB write fails.
+    Always rolls back on DB failure so the caller's session stays clean.
+    FCM failures are logged but don't raise.
     """
     try:
         uid = UUID(user_id) if isinstance(user_id, str) else user_id
     except (ValueError, TypeError):
         uid = user_id
 
-    notif = Notification(
-        user_id=uid,
-        type=type,
-        title=title,
-        message=message,
-        data=data or {},
-    )
-    db.add(notif)
-    db.commit()
-    db.refresh(notif)
+    try:
+        notif = Notification(
+            user_id=uid,
+            type=type,
+            title=title,
+            message=message,
+            data=data or {},
+        )
+        db.add(notif)
+        db.commit()
+        db.refresh(notif)
+    except Exception as exc:
+        logger.warning("Failed to persist notification for user %s: %s", uid, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
 
     try:
         user = db.query(User).filter(User.id == str(uid)).first()
