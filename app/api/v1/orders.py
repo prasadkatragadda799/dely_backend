@@ -159,7 +159,12 @@ def create_order(
     
     db.commit()
     db.refresh(order)
-    
+
+    # Serialize the response NOW while the session is guaranteed clean —
+    # before cart deletion and notification, either of which can leave the
+    # session in InFailedSqlTransaction if they fail.
+    response_data = OrderResponse.model_validate(order)
+
     # Clear cart
     from app.models.cart import Cart
     db.query(Cart).filter(Cart.user_id == str(current_user.id)).delete()
@@ -181,20 +186,14 @@ def create_order(
             },
         )
     except Exception:
-        # Notification failures must never block order creation.
-        # CRITICAL: rollback so the session is not left in InFailedSqlTransaction,
-        # which would cause the subsequent OrderResponse serialization to fail.
         try:
             db.rollback()
         except Exception:
             pass
 
-    # Re-fetch order so Pydantic serialization reads a clean session state.
-    order = db.query(Order).filter(Order.id == str(order.id)).first()
-
     return ResponseModel(
         success=True,
-        data=OrderResponse.model_validate(order),
+        data=response_data,
         message="Order created successfully"
     )
 
