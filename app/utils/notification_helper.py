@@ -151,9 +151,9 @@ def create_notification(
     FCM failures are logged but don't raise.
     """
     try:
-        uid = UUID(user_id) if isinstance(user_id, str) else user_id
+        uid = str(UUID(str(user_id)))
     except (ValueError, TypeError):
-        uid = user_id
+        uid = str(user_id)
 
     try:
         notif = Notification(

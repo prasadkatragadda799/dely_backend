@@ -569,14 +569,27 @@ async def update_order_status(
 
     # Notify user about order status change
     if order_user_id:
-        _order_notif_type = "delivery" if order_status in (OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED) else "order"
-        _title = f"Order #{order_number} {order_status.value.replace('_', ' ')}"
-        _msg = f"Your order has been updated to: {order_status.value.replace('_', ' ')}."
+        _STATUS_COPY = {
+            OrderStatus.CONFIRMED:       ("order",    "Order Confirmed",       "Your order #{num} has been confirmed and is being prepared."),
+            OrderStatus.PROCESSING:      ("order",    "Order Being Processed", "Your order #{num} is currently being processed."),
+            OrderStatus.SHIPPED:         ("order",    "Order Shipped",         "Your order #{num} has been shipped and is on its way!"),
+            OrderStatus.OUT_FOR_DELIVERY:("delivery", "Out for Delivery",      "Your order #{num} is out for delivery. Expect it soon!"),
+            OrderStatus.DELIVERED:       ("delivery", "Order Delivered",       "Your order #{num} has been delivered. Thank you!"),
+            OrderStatus.COMPLETED:       ("order",    "Order Completed",       "Your order #{num} is complete. Thanks for shopping with us!"),
+            OrderStatus.CANCELLED:       ("order",    "Order Cancelled",       "Your order #{num} has been cancelled."),
+            OrderStatus.CANCELED:        ("order",    "Order Cancelled",       "Your order #{num} has been cancelled."),
+        }
+        _type, _title_tpl, _msg_tpl = _STATUS_COPY.get(
+            order_status,
+            ("order", f"Order #{order_number} Updated", f"Your order #{order_number} status is now {order_status.value.replace('_', ' ')}."),
+        )
+        _title = _title_tpl if "{num}" not in _title_tpl else _title_tpl.replace("{num}", order_number)
+        _msg   = _msg_tpl.replace("{num}", order_number)
         try:
             create_notification(
                 db=db,
                 user_id=order_user_id,
-                type=_order_notif_type,
+                type=_type,
                 title=_title,
                 message=_msg,
                 data={"order_id": order_id_val, "order_number": order_number, "status": order_status.value},
@@ -686,8 +699,8 @@ async def cancel_order(
                 db=db,
                 user_id=order_user_id,
                 type="order",
-                title=f"Order #{order_number} cancelled",
-                message="Your order has been cancelled.",
+                title="Order Cancelled",
+                message=f"Your order #{order_number} has been cancelled.",
                 data={"order_id": order_id_val, "order_number": order_number, "status": "cancelled"},
             )
         except Exception:
