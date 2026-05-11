@@ -71,6 +71,10 @@ def get_categories(
     from sqlalchemy import func
 
     division_id = _resolve_division_id(db, division_slug)
+    # If a specific division slug was requested but not found in DB, return empty
+    # rather than silently falling back to default FMCG categories.
+    if division_slug and division_slug != "default" and division_id is None:
+        return ResponseModel(success=True, data=[])
     allowed_ids = _collect_forest_category_ids(db, division_id)
     if not allowed_ids:
         return ResponseModel(success=True, data=[])

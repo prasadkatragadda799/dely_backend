@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, false
 from app.database import get_db
 from app.api.deps import get_current_user, require_kyc_verified
 from app.schemas.product import ProductResponse, ProductListResponse
@@ -102,13 +102,9 @@ def get_products(
         if division_id is not None:
             query = query.filter(Product.division_id == division_id)
         else:
-            # Unknown division_slug: fall back to resolved default grocery division.
-            fallback_default_division_id = _resolve_division_id(db, "default")
-            if fallback_default_division_id:
-                query = query.filter(Product.division_id == fallback_default_division_id)
-            else:
-                # Legacy behavior (in case default was never seeded).
-                query = query.filter(Product.division_id == None)
+            # Unknown division_slug: return empty rather than falling back to default
+            # grocery, which would cause FMCG products to bleed into other divisions.
+            query = query.filter(false())
 
     # Apply filters (convert UUIDs to strings for database queries)
     if category:
