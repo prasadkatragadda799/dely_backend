@@ -16,31 +16,40 @@ router = APIRouter()
 
 
 def _resolve_division_id(db: Session, division_slug: Optional[str]):
-    """Return division id for slug, or None for default (Grocery)."""
-    if not division_slug:
-        return None
-    if division_slug == "default":
-        return None
-    d = db.query(Division).filter(Division.slug == division_slug, Division.is_active == True).first()
-    return str(d.id) if d else None
+    """
+    Return (division_id, is_default).
+
+    - No slug / "default" → looks up the 'default' (Grocery) division by slug.
+    - Any other slug → looks up that division; returns (None, False) if not found.
+    """
+    target = division_slug if division_slug else "default"
+    d = db.query(Division).filter(Division.slug == target, Division.is_active == True).first()
+    is_default = (target == "default")
+    return (str(d.id) if d else None), is_default
 
 
-def _collect_forest_category_ids(db: Session, division_id: Optional[str]) -> set:
+def _collect_forest_category_ids(db: Session, division_id: Optional[str], include_nulls: bool = False) -> set:
     """
     IDs of root categories for this shelf plus every descendant.
 
-    Subcategories in admin often have a concrete division_id (e.g. FMCG) while their
-    parent root has division_id NULL (default grocery). Filtering all rows by
-    division_id would drop children and return empty `children` in the app.
+    include_nulls=True also picks up root categories whose division_id is NULL
+    (legacy rows created before the division system was in place).
     """
+    from sqlalchemy import or_
+
     root_q = db.query(Category.id).filter(
         Category.is_active == True,
         Category.parent_id == None,
     )
     if division_id is not None:
-        root_q = root_q.filter(Category.division_id == division_id)
+        if include_nulls:
+            root_q = root_q.filter(
+                or_(Category.division_id == division_id, Category.division_id.is_(None))
+            )
+        else:
+            root_q = root_q.filter(Category.division_id == division_id)
     else:
-        root_q = root_q.filter(Category.division_id == None)
+        root_q = root_q.filter(Category.division_id.is_(None))
     root_ids = [row[0] for row in root_q.all()]
     if not root_ids:
         return set()
@@ -70,12 +79,13 @@ def get_categories(
     """Get all categories in tree structure (Mobile App API). Optionally filter by division (e.g. kitchen)."""
     from sqlalchemy import func
 
-    division_id = _resolve_division_id(db, division_slug)
-    # If a specific division slug was requested but not found in DB, return empty
-    # rather than silently falling back to default FMCG categories.
-    if division_slug and division_slug != "default" and division_id is None:
+    division_id, is_default = _resolve_division_id(db, division_slug)
+    # If a specific non-default division slug was requested but not found in DB, return empty.
+    if division_slug and not is_default and division_id is None:
         return ResponseModel(success=True, data=[])
-    allowed_ids = _collect_forest_category_ids(db, division_id)
+    # For the default (Grocery) division also include categories with no division set
+    # (legacy rows added before the division system existed).
+    allowed_ids = _collect_forest_category_ids(db, division_id, include_nulls=is_default)
     if not allowed_ids:
         return ResponseModel(success=True, data=[])
 
