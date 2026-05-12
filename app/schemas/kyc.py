@@ -15,6 +15,7 @@ class GSTVerifyResponse(BaseModel):
     status: Optional[str] = None
     registration_date: Optional[str] = None
     business_type: Optional[str] = None
+    pan_number: Optional[str] = None
     address: Optional[Dict[str, Any]] = None
 
 

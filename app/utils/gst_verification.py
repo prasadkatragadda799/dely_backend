@@ -1,64 +1,58 @@
 import requests
-from app.config import settings
+import logging
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+_VARUN_GST_URL = "https://vmsuatkapil.varungroup.com/gst/gstverification"
 
 
 def verify_gst_number(gst_number: str) -> Optional[Dict[str, Any]]:
     """
-    Verify GST number using external API
-    Returns GST details if valid, None otherwise
-    
-    Note: Currently returns mock data. In production, integrate with actual GST API.
+    Verify GSTIN via the Varun Group GST verification API.
+    Returns a normalized dict on success, None on failure.
     """
-    try:
-        # Validate GST number format
-        if not gst_number or len(gst_number) != 15:
-            return None
-        
-        # Extract state code (first 2 digits)
-        state_code = gst_number[:2]
-        
-        # This is a placeholder - replace with actual GST API integration
-        # Example API call:
-        # response = requests.get(
-        #     f"{settings.GST_VERIFICATION_API_URL}/verify",
-        #     params={"gst": gst_number},
-        #     headers={"Authorization": f"Bearer {settings.GST_API_KEY}"},
-        #     timeout=10  # 10 second timeout
-        # )
-        # if response.status_code == 200:
-        #     return response.json()
-        
-        # For now, return mock data based on GST number
-        # Extract PAN from GST (characters 3-12)
-        pan = gst_number[2:12]
-        
-        # State mapping (first 2 digits)
-        state_map = {
-            "09": "Uttar Pradesh",
-            "27": "Maharashtra",
-            "10": "Bihar",
-            "07": "Delhi",
-            "33": "Tamil Nadu",
-            "19": "West Bengal"
-        }
-        state_name = state_map.get(state_code, "Unknown State")
-        
-        return {
-            "gst_number": gst_number,
-            "legal_name": f"Business {pan}",
-            "trade_name": f"Trade Name {pan}",
-            "status": "Active",
-            "registration_date": "2020-01-01",
-            "business_type": "Regular",
-            "address": {
-                "street": f"Business Address for {gst_number}",
-                "city": "Sample City",
-                "state": state_name,
-                "pincode": "123456"
-            }
-        }
-    except Exception as e:
-        print(f"Error verifying GST: {e}")
+    if not gst_number or len(gst_number) != 15:
         return None
 
+    try:
+        response = requests.get(
+            _VARUN_GST_URL,
+            params={"GstIn": gst_number},
+            timeout=15,
+            verify=False,  # internal UAT server uses a private CA
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        if payload.get("Status") != 1 or not payload.get("Data"):
+            logger.warning("[GST] API returned non-success for %s: %s", gst_number, payload)
+            return None
+
+        d = payload["Data"]
+
+        addr_parts = [d.get("AddrBnm", ""), d.get("AddrBno", ""), d.get("AddrFlno", ""), d.get("AddrSt", ""), d.get("AddrLoc", "")]
+        address_line = ", ".join(p for p in addr_parts if p)
+
+        return {
+            "gst_number": d.get("Gstin", gst_number),
+            "legal_name": d.get("LegalName", ""),
+            "trade_name": d.get("TradeName", ""),
+            "status": d.get("Status", ""),
+            "registration_date": d.get("DtReg", ""),
+            "business_type": d.get("TxpType", ""),
+            "pan_number": d.get("panNumber", ""),
+            "address": {
+                "street": address_line,
+                "city": d.get("AddrLoc", ""),
+                "state": str(d.get("StateCode", "")),
+                "pincode": str(d.get("AddrPncd", "")),
+            },
+        }
+
+    except requests.RequestException:
+        logger.exception("[GST] Request to Varun GST API failed for %s", gst_number)
+        return None
+    except Exception:
+        logger.exception("[GST] Unexpected error verifying %s", gst_number)
+        return None
