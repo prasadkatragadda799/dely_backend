@@ -6,7 +6,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_GST_REGEX = re.compile(r'^\d{2}[A-Z0-9]{10}[1-9A-Z]Z\d$')
+_GST_REGEX = re.compile(r'^\d{2}[A-Z0-9]{10}[1-9A-Z]Z[A-Z0-9]$')
 _CASHFREE_URL = "https://api.cashfree.com/verification/gstin"
 
 
