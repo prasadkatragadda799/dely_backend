@@ -11,6 +11,7 @@ Run from the dely_backend directory so the app config is on the path.
 """
 import sys
 import os
+from typing import Optional
 
 # Allow running from the dely_backend root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +46,7 @@ def normalize_phone(raw: str) -> list[str]:
     return list(dict.fromkeys(candidates))  # deduplicate, preserve order
 
 
-def find_user(db, phone_raw: str) -> User | None:
+def find_user(db, phone_raw: str) -> Optional[User]:
     for candidate in normalize_phone(phone_raw):
         user = db.query(User).filter(User.phone == candidate).first()
         if user:
