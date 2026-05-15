@@ -72,10 +72,7 @@ class OrderItem(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(String(36), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
-    # Note: product_name and product_image_url columns don't exist in database table yet
-    # Uncomment when migration adds these columns
-    # product_name = Column(String(255), nullable=False)  # Snapshot at time of order
-    # product_image_url = Column(String(500), nullable=True)
+    product_name = Column(String(255), nullable=True)  # Snapshot at time of order
     quantity = Column(Integer, nullable=False)
     # Note: unit_price column doesn't exist in database table yet
     # Use 'price' field instead (which exists in DB)
@@ -92,11 +89,6 @@ class OrderItem(Base):
     def unit_price(self):
         """Alias for price field"""
         return self.price
-    
-    @property
-    def product_name(self):
-        """Get product name from relationship if available"""
-        return self.product.name if self.product else None
     
     @property
     def product_image_url(self):

@@ -144,6 +144,7 @@ def create_order(
         order_item = OrderItem(
             order_id=str(order.id),
             product_id=str(item.product_id),
+            product_name=product.name,
             quantity=item.quantity,
             price=price,
             subtotal=price * item.quantity

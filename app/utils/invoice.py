@@ -210,7 +210,7 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
                     else product.unit
                 )
             if not hsn_code:
-                hsn_code = "07139090"
+                hsn_code = product.hsn_code or "07139090"
             if not variant_name:
                 variant_name = product.unit or "EACH (Set of 1)"
 
@@ -265,7 +265,7 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
             "id": str(item.id),
             "product": {
                 "id": str(product.id) if product else None,
-                "name": product.name if product else (getattr(item, "product_name", None) or "Product"),
+                "name": (product.name if product else None) or item.product_name or "Product",
                 "hsn": hsn_code,
                 "variant": variant_name or (product.unit if product else "EACH (Set of 1)"),
             },
