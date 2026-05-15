@@ -8,6 +8,7 @@ from sqlalchemy import text
 from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.models.order import Order, OrderStatus
+from app.models.settings import Settings
 from app.models.delivery_person import DeliveryPerson
 from app.api.v1.delivery_auth import get_current_delivery_person
 from datetime import datetime, timedelta
@@ -25,6 +26,21 @@ def _supports_out_for_delivery(db: Session) -> bool:
         return "OUT_FOR_DELIVERY" in allowed
     except Exception:
         return False
+
+
+@router.get("/payment-qr", response_model=ResponseModel)
+async def get_payment_qr(
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db)
+):
+    """Return the admin-configured payment QR code URL for use at delivery time."""
+    setting = db.query(Settings).filter(Settings.key == "payment").first()
+    qr_url = (setting.value or {}).get("paymentQrUrl") if setting else None
+    return ResponseModel(
+        success=True,
+        data={"paymentQrUrl": qr_url},
+        message="Payment QR retrieved"
+    )
 
 
 @router.get("/dashboard-summary", response_model=ResponseModel)

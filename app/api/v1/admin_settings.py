@@ -32,6 +32,9 @@ def _cod_only_payment_settings(existing: Optional[dict] = None) -> dict:
     base["cashOnDeliveryEnabled"] = True
     base["defaultCreditLimit"] = 0
     base["paymentTermsDays"] = 0
+    # Preserve QR URL if already set
+    if "paymentQrUrl" not in base:
+        base["paymentQrUrl"] = None
     return base
 
 
@@ -177,7 +180,7 @@ async def update_payment_settings(
     current_settings = _cod_only_payment_settings(get_setting(db, "payment"))
     # Keep this endpoint idempotent and COD-only regardless of incoming payload.
     update_setting(db, "payment", _cod_only_payment_settings(current_settings))
-    
+
     # Log activity
     log_admin_activity(
         db=db,
@@ -188,11 +191,72 @@ async def update_payment_settings(
         details={"section": "payment"},
         request=request
     )
-    
+
     return ResponseModel(
         success=True,
         message="Payment settings updated successfully"
     )
+
+
+@router.post("/payment/qr-upload", response_model=ResponseModel)
+async def upload_payment_qr(
+    request: Request,
+    qrImage: UploadFile = File(...),
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Upload or replace the UPI/QR code image shown to delivery persons at collection."""
+    allowed_exts = {"jpg", "jpeg", "png", "webp", "gif"}
+    filename = qrImage.filename or "qr.png"
+    file_ext = filename.rsplit(".", 1)[-1].lower()
+    if file_ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="Only image files are allowed (jpg, png, webp)")
+
+    uploads_dir = Path(app_settings.UPLOAD_DIR) / "settings"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    file_name = f"payment_qr.{file_ext}"
+    file_path = uploads_dir / file_name
+    content = await qrImage.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5 MB)")
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    qr_url = f"{app_settings.BASE_URL}/uploads/settings/{file_name}"
+
+    current_settings = _cod_only_payment_settings(get_setting(db, "payment"))
+    current_settings["paymentQrUrl"] = qr_url
+    update_setting(db, "payment", current_settings)
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="settings_updated",
+        entity_type="settings",
+        entity_id=None,
+        details={"section": "payment", "field": "paymentQrUrl"},
+        request=request
+    )
+
+    return ResponseModel(
+        success=True,
+        data={"paymentQrUrl": qr_url},
+        message="Payment QR code uploaded successfully"
+    )
+
+
+@router.delete("/payment/qr", response_model=ResponseModel)
+async def delete_payment_qr(
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Remove the payment QR code."""
+    current_settings = _cod_only_payment_settings(get_setting(db, "payment"))
+    current_settings["paymentQrUrl"] = None
+    update_setting(db, "payment", current_settings)
+    return ResponseModel(success=True, message="Payment QR code removed")
 
 
 # ===== Delivery Settings =====
