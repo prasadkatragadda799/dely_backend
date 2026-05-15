@@ -16,9 +16,10 @@ from typing import Optional
 # Allow running from the dely_backend root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import text
 from app.database import SessionLocal
 from app.models.user import User
-from app.models.order import Order, OrderItem
+from app.models.order import Order
 from app.models.cart import Cart
 from app.models.kyc import KYC
 from app.models.kyc_document import KYCDocument
@@ -86,10 +87,29 @@ def summarize(db, user: User) -> None:
 
 
 def delete_user(db, user: User) -> None:
-    # Orders: order_items cascade from orders, status_history cascades from orders.
-    # The ORM cascade="all, delete-orphan" on User.orders handles them.
-    # But DB FK is SET NULL, so we must delete via ORM (not raw SQL DELETE on users).
-    db.delete(user)
+    uid = user.id
+    # Use raw SQL throughout to avoid SQLAlchemy loading the Order.status enum
+    # (DB may still have uppercase enum values that cause LookupError on ORM load).
+    steps = [
+        # order children first (FK cascade would handle order_items but be explicit)
+        ("order_items",          "DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE user_id = :uid)"),
+        ("order_status_history", "DELETE FROM order_status_history WHERE order_id IN (SELECT id FROM orders WHERE user_id = :uid)"),
+        ("orders",               "DELETE FROM orders WHERE user_id = :uid"),
+        ("carts",                "DELETE FROM carts WHERE user_id = :uid"),
+        ("kyc_documents",        "DELETE FROM kyc_documents WHERE user_id = :uid"),
+        ("kycs",                 "DELETE FROM kycs WHERE user_id = :uid"),
+        ("wishlists",            "DELETE FROM wishlists WHERE user_id = :uid"),
+        ("notifications",        "DELETE FROM notifications WHERE user_id = :uid"),
+        ("delivery_locations",   "DELETE FROM delivery_locations WHERE user_id = :uid"),
+        ("wallet_transactions",  "DELETE FROM wallet_transactions WHERE wallet_id IN (SELECT id FROM wallets WHERE user_id = :uid)"),
+        ("wallets",              "DELETE FROM wallets WHERE user_id = :uid"),
+        ("user_payment_methods", "DELETE FROM user_payment_methods WHERE user_id = :uid"),
+        ("user_activity_logs",   "DELETE FROM user_activity_logs WHERE user_id = :uid"),
+        ("users",                "DELETE FROM users WHERE id = :uid"),
+    ]
+    for label, sql in steps:
+        result = db.execute(text(sql), {"uid": uid})
+        print(f"    {label}: {result.rowcount} row(s) deleted")
     db.commit()
     print("\n  User and all associated data deleted successfully.")
 
