@@ -27,7 +27,7 @@ class Order(Base):
     division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)  # Kitchen / Grocery etc.
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     delivery_person_id = Column(String(36), ForeignKey("delivery_persons.id", ondelete="SET NULL"), nullable=True, index=True)
-    status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, nullable=False)
+    status = Column(SQLEnum(OrderStatus, values_callable=lambda x: [e.value for e in x]), default=OrderStatus.PENDING, nullable=False)
     payment_method = Column(String(50), nullable=True)
     payment_status = Column(String(20), default="pending", nullable=False)  # 'pending', 'paid', 'failed', 'refunded'
     items = Column(JSON, nullable=True)  # Legacy: Store order items as JSON (deprecated, use order_items relationship)
