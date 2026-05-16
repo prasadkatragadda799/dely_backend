@@ -50,7 +50,7 @@ class User(Base):
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=True, index=True)
     phone = Column(String(20), nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     business_name = Column(String(255), nullable=False)

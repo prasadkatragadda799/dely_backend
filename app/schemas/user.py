@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, AliasChoices, model_validator
+from pydantic import BaseModel, Field, AliasChoices, model_validator
 from typing import Optional, Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
@@ -6,7 +6,7 @@ from uuid import UUID
 
 class UserBase(BaseModel):
     name: str
-    email: EmailStr
+    email: Optional[str] = None
     phone: str
     business_name: str
     gst_number: Optional[str] = None
@@ -151,7 +151,7 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     name: str
-    email: EmailStr
+    email: Optional[str] = None
     phone: str
     business_name: str
     gst_number: Optional[str]
@@ -165,58 +165,16 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    """
-    Flexible login schema:
-    - Frontend sends a single `email` field that may actually contain email OR phone.
-    - Also accepts explicit `phone`, `phoneNumber`, `phone_number`, or `identifier`.
-    """
+    """Phone-based login schema."""
 
-    # Raw fields from client
-    email: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("email", "username"),
-    )
-    phone: Optional[str] = Field(
-        default=None,
+    phone: str = Field(
+        ...,
         validation_alias=AliasChoices("phone", "phoneNumber", "phone_number"),
-    )
-    identifier: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("identifier", "login", "user"),
     )
     password: str = Field(
         ...,
         validation_alias=AliasChoices("password", "pass"),
     )
-
-    @model_validator(mode="after")
-    def _normalize_identifier(self):
-        """
-        Normalise login input so that:
-        - If `email` looks like a phone and `phone` is empty, treat it as phone.
-        - If `identifier` is provided, route it to email or phone based on contents.
-        """
-        # If frontend sends a phone in `email` (common "emailOrPhone" pattern)
-        if self.email and not self.phone:
-            raw = str(self.email).strip()
-            if raw and raw.lstrip("+").isdigit() and "@" not in raw:
-                # Treat this as phone login
-                self.phone = raw
-                self.email = None
-
-        # If we still have neither, try identifier
-        if (not self.email or str(self.email).strip() == "") and (not self.phone or str(self.phone).strip() == ""):
-            if self.identifier and str(self.identifier).strip():
-                raw = str(self.identifier).strip()
-                if raw.lstrip("+").isdigit() and "@" not in raw:
-                    self.phone = raw
-                else:
-                    self.email = raw
-
-        if (not self.email or str(self.email).strip() == "") and (not self.phone or str(self.phone).strip() == ""):
-            raise ValueError("Either email/username or phone/phoneNumber must be provided")
-
-        return self
 
 
 class ChangePassword(BaseModel):
