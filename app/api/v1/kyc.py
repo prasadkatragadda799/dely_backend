@@ -107,16 +107,15 @@ def submit_kyc(
     # Validate required fields
     if not kyc_data.business_name:
         raise HTTPException(status_code=400, detail="Business name is required")
-    if not kyc_data.gst_number:
-        raise HTTPException(status_code=400, detail="GST number is required")
-    if not kyc_data.fssai_number:
-        raise HTTPException(status_code=400, detail="FSSAI license number is required")
 
-    # Validate FSSAI: digits only, exactly 14
-    fssai_clean = str(kyc_data.fssai_number).strip()
-    if not re.fullmatch(r"^\d{14}$", fssai_clean):
-        raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
-    kyc_data.fssai_number = fssai_clean
+    # Validate FSSAI only when provided
+    if kyc_data.fssai_number and kyc_data.fssai_number.strip():
+        fssai_clean = str(kyc_data.fssai_number).strip()
+        if not re.fullmatch(r"^\d{14}$", fssai_clean):
+            raise HTTPException(status_code=400, detail="Invalid FSSAI license number. It must be exactly 14 digits.")
+        kyc_data.fssai_number = fssai_clean
+    else:
+        kyc_data.fssai_number = None
     
     # Check if KYC already exists (KYC.user_id and current_user.id are String(36))
     existing_kyc = db.query(KYC).filter(KYC.user_id == str(current_user.id)).first()
@@ -133,10 +132,11 @@ def submit_kyc(
             message="KYC is already verified"
         )
     
-    # Verify GST
-    gst_details = verify_gst_number(kyc_data.gst_number)
-    if not gst_details:
-        raise HTTPException(status_code=400, detail="Invalid GST number")
+    # Verify GST only when provided
+    if kyc_data.gst_number and kyc_data.gst_number.strip():
+        gst_details = verify_gst_number(kyc_data.gst_number)
+        if not gst_details:
+            raise HTTPException(status_code=400, detail="Invalid GST number")
 
     # Normalize optional image URLs.
     # KYCSubmit.model_post_init currently defaults these to "" which would
