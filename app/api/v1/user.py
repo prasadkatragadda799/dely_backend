@@ -38,13 +38,23 @@ def get_profile(
     
     # Extract business address details from address JSON if available
     business_address = None
+    business_address_line2 = None
     business_city = None
     business_state = None
     business_pincode = None
     latitude = None
     longitude = None
     if current_user.address and isinstance(current_user.address, dict):
-        business_address = current_user.address.get("address") or current_user.address.get("business_address")
+        addr_inner = current_user.address.get("address") or current_user.address.get("business_address")
+        if isinstance(addr_inner, dict):
+            business_address = (
+                addr_inner.get("address_line1") or addr_inner.get("addressLine1") or ""
+            ) or None
+            business_address_line2 = (
+                addr_inner.get("address_line2") or addr_inner.get("addressLine2") or ""
+            ) or None
+        elif isinstance(addr_inner, str) and addr_inner.strip():
+            business_address = addr_inner.strip()
         business_city = current_user.address.get("city") or current_user.address.get("business_city")
         business_state = current_user.address.get("state") or current_user.address.get("business_state")
         business_pincode = current_user.address.get("pincode") or current_user.address.get("business_pincode")
@@ -94,6 +104,8 @@ def get_profile(
         "panNumber": current_user.pan_number,  # camelCase alternative
         "business_address": business_address,
         "businessAddress": business_address,  # camelCase alternative
+        "business_address_line2": business_address_line2,
+        "businessAddressLine2": business_address_line2,
         "business_city": business_city,
         "businessCity": business_city,  # camelCase alternative
         "business_state": business_state,
@@ -105,7 +117,11 @@ def get_profile(
         "state": state_value,
         "pincode": pincode_value,
         "pin_code": pincode_value,
-        "address": address_value,
+        "address_line1": business_address,
+        "addressLine1": business_address,
+        "address_line2": business_address_line2,
+        "addressLine2": business_address_line2,
+        "address": business_address,
         "latitude": latitude,
         "longitude": longitude,
         "avatar_url": None,  # Not implemented yet, can be added later
