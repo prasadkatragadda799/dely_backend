@@ -570,6 +570,47 @@ def verify_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
         except Exception:
             logger.warning("Failed to send welcome notification for user %s", user.id)
 
+    # Auto-create a KYC record so the user appears in the admin Pending queue immediately.
+    if is_first_activation and user.business_name:
+        try:
+            from app.models.kyc import KYC as KYCRecord, KYCStatus as KYCRecordStatus
+            from app.models.user import KYCStatus as UserKYCStatus
+            existing_kyc = db.query(KYCRecord).filter(KYCRecord.user_id == str(user.id)).first()
+            if not existing_kyc:
+                addr_inner = None
+                addr_dict: dict = {}
+                if user.address and isinstance(user.address, dict):
+                    addr_inner = user.address.get("address") or user.address.get("business_address")
+                    if isinstance(addr_inner, dict):
+                        addr_dict = {
+                            "address": addr_inner.get("address_line1") or addr_inner.get("addressLine1") or "",
+                            "city": user.address.get("city", ""),
+                            "state": user.address.get("state", ""),
+                            "pincode": user.address.get("pincode", ""),
+                        }
+                    else:
+                        addr_dict = {k: v for k, v in user.address.items() if k != "address"}
+                kyc_record = KYCRecord(
+                    user_id=str(user.id),
+                    business_name=user.business_name or "",
+                    gst_number=user.gst_number or "",
+                    fssai_number=user.fssai_number or None,
+                    business_type="retailer",
+                    address=addr_dict or {},
+                    shop_image_url=user.shop_photo_url or None,
+                    fssai_license_image_url=user.fssai_license or None,
+                    status=KYCRecordStatus.PENDING,
+                )
+                db.add(kyc_record)
+                db.query(User).filter(User.id == user.id).update(
+                    {"kyc_status": UserKYCStatus.PENDING.value}
+                )
+                db.commit()
+                db.refresh(user)
+        except Exception:
+            logger.warning("Failed to auto-create KYC record for user %s", user.id)
+            db.rollback()
+
     tokens = create_tokens(user)
 
     kyc_status = user.kyc_status.value if hasattr(user.kyc_status, "value") else str(user.kyc_status)
