@@ -255,6 +255,30 @@ async def list_kyc_submissions(
                 getattr(kyc, "fssai_license_image_url", None),
                 getattr(user, "fssai_license", None),
             ),
+            "gstCertificate": _pick_public_url(
+                (kyc.documents or {}).get("gst_certificate") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "gst_certificate", None),
+            ),
+            "gst_certificate": _pick_public_url(
+                (kyc.documents or {}).get("gst_certificate") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "gst_certificate", None),
+            ),
+            "udyamRegistration": _pick_public_url(
+                (kyc.documents or {}).get("udyam_registration") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "udyam_registration", None),
+            ),
+            "udyam_registration": _pick_public_url(
+                (kyc.documents or {}).get("udyam_registration") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "udyam_registration", None),
+            ),
+            "tradeCertificate": _pick_public_url(
+                (kyc.documents or {}).get("trade_certificate") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "trade_certificate", None),
+            ),
+            "trade_certificate": _pick_public_url(
+                (kyc.documents or {}).get("trade_certificate") if isinstance(kyc.documents, dict) else None,
+                getattr(user, "trade_certificate", None),
+            ),
         }
         
         # Add rejection info if status is rejected

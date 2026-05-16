@@ -182,11 +182,20 @@ def submit_kyc(
         db.commit()
         # Don't refresh - object is already populated with ID from commit
     
-    # Update user KYC status using update() to ensure proper enum handling
+    # Update user KYC status and sync any newly submitted document URLs back to user columns
+    # so the admin detail view (which reads user.xxx columns) always shows the latest docs.
     from app.models.user import KYCStatus as UserKYCStatus
-    db.query(User).filter(User.id == current_user.id).update({
-        "kyc_status": UserKYCStatus.PENDING.value  # Use .value to get the string
-    })
+    user_updates: dict = {"kyc_status": UserKYCStatus.PENDING.value}
+    if kyc_data.documents and isinstance(kyc_data.documents, dict):
+        for col, key in [
+            ("gst_certificate", "gst_certificate"),
+            ("udyam_registration", "udyam_registration"),
+            ("trade_certificate", "trade_certificate"),
+        ]:
+            val = (kyc_data.documents.get(key) or "").strip()
+            if val:
+                user_updates[col] = val
+    db.query(User).filter(User.id == current_user.id).update(user_updates)
     db.commit()
     # Refresh current_user object to get updated values
     db.refresh(current_user)
