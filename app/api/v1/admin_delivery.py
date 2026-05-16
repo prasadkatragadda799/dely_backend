@@ -199,7 +199,8 @@ async def create_delivery_person(
             "id": new_person.id,
             "name": new_person.name,
             "phone": new_person.phone,
-            "employeeId": new_person.employee_id
+            "employeeId": new_person.employee_id,
+            "plainPassword": person_data.password,
         },
         message="Delivery person created successfully"
     )

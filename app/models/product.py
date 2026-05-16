@@ -38,6 +38,8 @@ class Product(Base):
     expiry_date = Column(Date, nullable=True)  # Best-before / expiry for inventory management
     meta_title = Column(String(255), nullable=True)
     meta_description = Column(Text, nullable=True)
+    cancel_policy = Column(Text, nullable=True)
+    return_policy = Column(Text, nullable=True)
     created_by = Column(String(36), ForeignKey("admins.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

@@ -176,6 +176,10 @@ async def list_products(
             "expiryDate": p.expiry_date.isoformat() if p.expiry_date else None,
             "manufacturerName": getattr(p, "manufacturer_name", None),
             "manufacturerAddress": getattr(p, "manufacturer_address", None),
+            "cancelPolicy": getattr(p, "cancel_policy", None),
+            "cancel_policy": getattr(p, "cancel_policy", None),
+            "returnPolicy": getattr(p, "return_policy", None),
+            "return_policy": getattr(p, "return_policy", None),
             "images": [ProductImageResponse.model_validate(img) for img in p.product_images],
             "variants": [
                 {
@@ -310,6 +314,10 @@ async def create_product(
     manufacturer_name: Optional[str] = Form(None),   # snake_case
     manufacturerAddress: Optional[str] = Form(None), # camelCase — Bill From supplier address
     manufacturer_address: Optional[str] = Form(None),# snake_case
+    cancelPolicy: Optional[str] = Form(None),
+    cancel_policy: Optional[str] = Form(None),
+    returnPolicy: Optional[str] = Form(None),
+    return_policy: Optional[str] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -339,6 +347,8 @@ async def create_product(
     hsn_code_param = hsnCode if hsnCode is not None else hsn_code
     manufacturer_name_param = manufacturerName if manufacturerName is not None else manufacturer_name
     manufacturer_address_param = manufacturerAddress if manufacturerAddress is not None else manufacturer_address
+    cancel_policy_param = cancelPolicy if cancelPolicy is not None else cancel_policy
+    return_policy_param = returnPolicy if returnPolicy is not None else return_policy
 
     # Parse expiry_date (YYYY-MM-DD)
     expiry_date_parsed: Optional[date] = None
@@ -501,6 +511,8 @@ async def create_product(
         meta_description=meta_description,
         manufacturer_name=manufacturer_name_param or None,
         manufacturer_address=manufacturer_address_param or None,
+        cancel_policy=cancel_policy_param or None,
+        return_policy=return_policy_param or None,
         # created_by column is String(36); ensure we store a string
         created_by=str(admin.id) if admin.id is not None else None
     )
@@ -673,6 +685,10 @@ async def update_product(
     manufacturer_name: Optional[str] = Form(None),   # snake_case
     manufacturerAddress: Optional[str] = Form(None), # camelCase — Bill From supplier address
     manufacturer_address: Optional[str] = Form(None),# snake_case
+    cancelPolicy: Optional[str] = Form(None),
+    cancel_policy: Optional[str] = Form(None),
+    returnPolicy: Optional[str] = Form(None),
+    return_policy: Optional[str] = Form(None),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -721,6 +737,8 @@ async def update_product(
     keep_image_ids_raw = keepImageIds if keepImageIds is not None else keep_image_ids
     manufacturer_name_u = manufacturerName if manufacturerName is not None else manufacturer_name
     manufacturer_address_u = manufacturerAddress if manufacturerAddress is not None else manufacturer_address
+    cancel_policy_u = cancelPolicy if cancelPolicy is not None else cancel_policy
+    return_policy_u = returnPolicy if returnPolicy is not None else return_policy
 
     # Parse expiry_date (YYYY-MM-DD); empty string clears the field
     if expiry_date_str is not None:
@@ -864,6 +882,12 @@ async def update_product(
     if manufacturer_address_u is not None:
         product.manufacturer_address = manufacturer_address_u or None
         update_data["manufacturer_address"] = product.manufacturer_address
+    if cancel_policy_u is not None:
+        product.cancel_policy = cancel_policy_u or None
+        update_data["cancel_policy"] = product.cancel_policy
+    if return_policy_u is not None:
+        product.return_policy = return_policy_u or None
+        update_data["return_policy"] = product.return_policy
 
     if hsn_code_param is not None:
         s = str(hsn_code_param).strip()

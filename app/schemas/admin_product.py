@@ -31,6 +31,8 @@ class AdminProductCreate(BaseModel):
     meta_description: Optional[str] = None
     manufacturer_name: Optional[str] = None
     manufacturer_address: Optional[str] = None
+    cancel_policy: Optional[str] = None
+    return_policy: Optional[str] = None
 
 
 class AdminProductUpdate(BaseModel):
@@ -55,6 +57,8 @@ class AdminProductUpdate(BaseModel):
     meta_description: Optional[str] = None
     manufacturer_name: Optional[str] = None
     manufacturer_address: Optional[str] = None
+    cancel_policy: Optional[str] = None
+    return_policy: Optional[str] = None
 
 
 class AdminBulkProductUpdate(BaseModel):
