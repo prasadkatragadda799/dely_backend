@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # In production, set CDN_BASE_URL env var to your CDN URL (e.g., "https://cdn.dely.com")
     # If not set, defaults to empty string (will use request base URL)
     CDN_BASE_URL: str = os.getenv("CDN_BASE_URL", "")
+    # Public base URL of the API server (used to build uploaded-file URLs).
+    # Set BASE_URL=https://api.yourdomain.com in .env for production.
+    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")
     
     # Admin Default Credentials (for initial setup)
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
