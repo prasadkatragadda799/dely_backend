@@ -1,11 +1,14 @@
 from sqlalchemy.orm import Session
 from app.models.cart import Cart
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from decimal import Decimal
 
 from app.utils.product_pricing import (
     customer_price_with_commission,
     tier_mrp,
+    variant_customer_price,
+    variant_mrp,
 )
 
 
@@ -28,9 +31,18 @@ def summarize_cart_lines(db: Session, cart_items: list) -> dict:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if not product:
             continue
-        tier = getattr(item, "price_option_key", None) or "unit"
-        price = customer_price_with_commission(product, tier)
-        mrp = tier_mrp(product, tier)
+        variant = None
+        if getattr(item, "variant_id", None):
+            variant = db.query(ProductVariant).filter(
+                ProductVariant.id == str(item.variant_id)
+            ).first()
+        if variant is not None:
+            price = variant_customer_price(product, variant)
+            mrp = variant_mrp(variant)
+        else:
+            tier = getattr(item, "price_option_key", None) or "unit"
+            price = customer_price_with_commission(product, tier)
+            mrp = tier_mrp(product, tier)
         item_subtotal = price * item.quantity
         item_discount = (mrp - price) * item.quantity if mrp and price else Decimal("0.00")
         subtotal += item_subtotal

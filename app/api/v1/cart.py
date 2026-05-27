@@ -8,6 +8,7 @@ from app.schemas.common import ResponseModel
 from app.models.cart import Cart
 from app.models.category import Category
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.services.cart_service import summarize_cart_lines
 from app.utils.product_pricing import (
     assert_tier_allowed,
@@ -15,7 +16,10 @@ from app.utils.product_pricing import (
     discount_percent,
     normalize_price_tier,
     tier_mrp,
+    variant_customer_price,
+    variant_mrp,
 )
+from app.utils.packaging_label import format_variant_packaging_line, variant_image_urls
 from uuid import UUID
 from decimal import Decimal
 from typing import List, Optional
@@ -120,15 +124,27 @@ def _product_belongs_to_grocery_cart_tab(db: Session, product: Product) -> bool:
     return False
 
 
-def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
-    """Cart line product snapshot; price matches the selected tier (incl. commission)."""
+def _cart_line_product_dict(product: Product, price_tier: str = "unit", variant: Optional[ProductVariant] = None) -> dict:
+    """
+    Cart line product snapshot. When `variant` is set, the line is a purchasable
+    variant SKU: price/MRP/discount/images come from the variant. Otherwise the
+    price matches the selected tier (incl. commission).
+    """
     tier = normalize_price_tier(price_tier)
-    sell_dec = customer_price_with_commission(product, tier)
-    mrp_dec = tier_mrp(product, tier)
+    if variant is not None:
+        sell_dec = variant_customer_price(product, variant)
+        mrp_dec = variant_mrp(variant)
+    else:
+        sell_dec = customer_price_with_commission(product, tier)
+        mrp_dec = tier_mrp(product, tier)
     price = float(sell_dec)
     original = float(mrp_dec) if mrp_dec else price
     variant_set = None
-    if getattr(product, "variants", None):
+    if variant is not None:
+        sp = getattr(variant, "set_pcs", None)
+        if sp is not None and str(sp).strip():
+            variant_set = str(sp).strip()
+    elif getattr(product, "variants", None):
         for v in product.variants:
             sp = getattr(v, "set_pcs", None)
             if sp is not None and str(sp).strip():
@@ -168,7 +184,22 @@ def _cart_line_product_dict(product: Product, price_tier: str = "unit") -> dict:
     }
     if variant_set:
         d["variantSetPieces"] = variant_set
-    if product.product_images:
+
+    # Variant SKU line: surface variant identity + its own gallery so the cart
+    # shows exactly what was added.
+    variant_images: list = []
+    if variant is not None:
+        d["variantId"] = str(variant.id)
+        d["variantLabel"] = format_variant_packaging_line(
+            getattr(variant, "packaging_label_type", None),
+            getattr(variant, "set_pcs", None),
+            getattr(variant, "weight", None),
+        )
+        variant_images = variant_image_urls(variant)
+
+    if variant_images:
+        d["images"] = variant_images
+    elif product.product_images:
         d["images"] = [
             img.image_url
             for img in sorted(product.product_images, key=lambda x: x.display_order)
@@ -219,12 +250,21 @@ def build_cart_response_data(db: Session, cart_items: List[Cart]) -> dict:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
             tier = getattr(item, "price_option_key", None) or "unit"
-            sell_dec = customer_price_with_commission(product, tier)
+            variant = None
+            if getattr(item, "variant_id", None):
+                variant = db.query(ProductVariant).filter(
+                    ProductVariant.id == str(item.variant_id)
+                ).first()
+            if variant is not None:
+                sell_dec = variant_customer_price(product, variant)
+            else:
+                sell_dec = customer_price_with_commission(product, tier)
             subtotal = sell_dec * item.quantity
-            product_data = _cart_line_product_dict(product, tier)
+            product_data = _cart_line_product_dict(product, tier, variant)
             items.append({
                 "id": str(item.id),
                 "product_id": str(item.product_id),
+                "variant_id": str(item.variant_id) if getattr(item, "variant_id", None) else None,
                 "quantity": item.quantity,
                 "price_option_key": tier,
                 "product": product_data,
@@ -281,7 +321,23 @@ def add_to_cart(
         raise HTTPException(status_code=400, detail="Product is not available")
 
     tier = normalize_price_tier(getattr(item_data, "price_option_key", None))
-    assert_tier_allowed(product, tier)
+
+    # Variant SKU line: validate the variant belongs to this product. The tier is
+    # not used for pricing variant lines (variant carries its own price), but we
+    # keep it on the row so the storage shape is uniform.
+    variant_id = getattr(item_data, "variant_id", None)
+    variant: Optional[ProductVariant] = None
+    if variant_id is not None:
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.id == str(variant_id),
+            ProductVariant.product_id == str(item_data.product_id),
+        ).first()
+        if variant is None:
+            raise HTTPException(status_code=404, detail="Variant not found for this product")
+    else:
+        assert_tier_allowed(product, tier)
+
+    variant_id_str = str(variant.id) if variant is not None else None
 
     stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
     if stock < item_data.quantity:
@@ -290,13 +346,15 @@ def add_to_cart(
     # min_order_quantity is stored in pieces; convert to the cart line's tier units
     # (e.g. 12 pieces → 1 set when tier='set' and pieces_per_set=12) so we don't
     # reject legitimate increments like "+1 set" on top of an existing set line.
-    min_line_qty = _min_line_qty_for_tier(product, tier)
+    # Variant lines are individual SKUs, so the product's piece-based minimum applies directly.
+    min_line_qty = 1 if variant is not None else _min_line_qty_for_tier(product, tier)
 
     product_division_id = str(product.division_id) if product.division_id else None
 
     existing_item = db.query(Cart).filter(
         Cart.user_id == str(current_user.id),
         Cart.product_id == str(item_data.product_id),
+        Cart.variant_id == variant_id_str,
         Cart.price_option_key == tier,
     ).first()
 
@@ -318,6 +376,7 @@ def add_to_cart(
         cart_item = Cart(
             user_id=str(current_user.id),
             product_id=str(item_data.product_id),
+            variant_id=variant_id_str,
             division_id=product_division_id,
             price_option_key=tier,
             quantity=item_data.quantity

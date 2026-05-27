@@ -50,6 +50,19 @@ def format_variant_packaging_line(
     return " · ".join(parts)
 
 
+def variant_image_urls(v: Any) -> list[str]:
+    """Ordered image URLs for a variant (primary first, then display_order)."""
+    imgs = getattr(v, "images", None) or []
+    try:
+        ordered = sorted(
+            imgs,
+            key=lambda i: (0 if getattr(i, "is_primary", False) else 1, getattr(i, "display_order", 0) or 0),
+        )
+        return [i.image_url for i in ordered if getattr(i, "image_url", None)]
+    except (AttributeError, TypeError):
+        return []
+
+
 def variant_row_for_public_api(v: Any, variant_mrp: Any, variant_price: Any, variant_discount: float) -> Dict[str, Any]:
     """Single variant object for GET /products-style responses."""
     ptype = getattr(v, "packaging_label_type", None)
@@ -66,4 +79,5 @@ def variant_row_for_public_api(v: Any, variant_mrp: Any, variant_price: Any, var
         "specialPrice": float(variant_price) if variant_price is not None else None,
         "discountPercentage": variant_discount,
         "freeItem": getattr(v, "free_item", None),
+        "images": variant_image_urls(v),
     }

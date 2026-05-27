@@ -5,9 +5,10 @@ Use from API layer (routes); keep routes thin.
 from typing import Optional, List, Tuple
 from uuid import UUID
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.repositories.product_repository import ProductRepository
 from app.core.exceptions import NotFoundError
 from app.core.constants import PaginationDefaults, ExpiryFilter
@@ -56,7 +57,7 @@ class ProductService:
         )
         query = query.options(
             joinedload(Product.product_images),
-            joinedload(Product.variants),
+            joinedload(Product.variants).selectinload(ProductVariant.images),
             joinedload(Product.brand_rel),
             joinedload(Product.company),
             joinedload(Product.category),

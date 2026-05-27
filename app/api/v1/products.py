@@ -1,18 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import or_, and_, func, false
 from app.database import get_db
 from app.api.deps import get_current_user, require_kyc_verified
 from app.schemas.product import ProductResponse, ProductListResponse
 from app.schemas.common import ResponseModel, PaginatedResponse, PaginationModel
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.models.product_service_area import ProductServiceArea
 from app.models.company import Company
+from app.models.zone import ZonePincode
 from app.models.category import Category
 from app.models.division import Division
 from app.utils.pagination import paginate
 from app.utils.discount import calculate_discount_percentage
-from app.utils.product_pricing import build_price_options_for_api
+from app.utils.product_pricing import build_price_options_for_api, variant_customer_price
 from app.utils.packaging_label import variant_row_for_public_api
 from typing import Optional
 from decimal import Decimal
@@ -134,7 +136,30 @@ def get_products(
     if featured is not None:
         query = query.filter(Product.is_featured == featured)
     if pincode:
-        # Keep products that have NO service-area rows (unrestricted) OR have a row matching this pincode
+        pincode_clean = pincode.strip()
+
+        # ── Zone-based filtering ────────────────────────────────────────────
+        # Find the zone(s) the user's pincode belongs to.
+        zone_rows = db.query(ZonePincode).filter(ZonePincode.pincode == pincode_clean).all()
+        zone_ids = [zp.zone_id for zp in zone_rows]
+
+        if zone_ids:
+            # Show products from:
+            #   a) companies in the user's zone, OR
+            #   b) companies with NO zone assigned (global/unrestricted sellers)
+            query = query.join(Company, Company.id == Product.company_id).filter(
+                or_(
+                    Company.zone_id.in_(zone_ids),
+                    Company.zone_id.is_(None),
+                )
+            )
+        else:
+            # Pincode is not in any zone → show only products from global companies
+            query = query.join(Company, Company.id == Product.company_id).filter(
+                Company.zone_id.is_(None)
+            )
+
+        # ── Product-level service area filtering (existing logic) ───────────
         has_any_restriction = (
             db.query(ProductServiceArea.product_id)
             .filter(ProductServiceArea.product_id == Product.id)
@@ -145,7 +170,7 @@ def get_products(
             db.query(ProductServiceArea.product_id)
             .filter(
                 ProductServiceArea.product_id == Product.id,
-                ProductServiceArea.pincode == pincode.strip(),
+                ProductServiceArea.pincode == pincode_clean,
             )
             .correlate(Product)
             .exists()
@@ -181,7 +206,7 @@ def get_products(
             joinedload(Product.division),
             joinedload(Product.brand_rel),
             joinedload(Product.company),
-            joinedload(Product.variants),
+            joinedload(Product.variants).selectinload(ProductVariant.images),
             joinedload(Product.product_images),
         )
         .offset(offset)
@@ -222,9 +247,9 @@ def get_products(
             product_data["variants"] = []
             for v in p.variants:
                 variant_mrp = v.mrp
-                variant_price = getattr(v, "special_price", None) or variant_mrp
+                variant_price = float(variant_customer_price(p, v))
                 variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
-                
+
                 product_data["variants"].append(
                     variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
                 )
@@ -304,7 +329,7 @@ def get_product(
             joinedload(Product.division),
             joinedload(Product.brand_rel),
             joinedload(Product.company),
-            joinedload(Product.variants),
+            joinedload(Product.variants).selectinload(ProductVariant.images),
             joinedload(Product.product_images),
         )
         .filter(Product.id == product_id)
@@ -348,9 +373,11 @@ def get_product(
         product_data["variants"] = []
         for v in product.variants:
             variant_mrp = v.mrp
-            variant_price = getattr(v, "special_price", None) or variant_mrp
+            # Customer-facing price = variant special price + commission (matches the
+            # cart/checkout charge), so the card price equals what's actually charged.
+            variant_price = float(variant_customer_price(product, v))
             variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
-            
+
             product_data["variants"].append(
                 variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
             )
@@ -536,6 +563,8 @@ def get_featured_products(
     products = db.query(Product).filter(
         Product.is_featured == True,
         Product.is_available == True
+    ).options(
+        selectinload(Product.variants).selectinload(ProductVariant.images),
     ).limit(limit).all()
     
     # Format products with enhanced data (matching get_products structure)
@@ -570,9 +599,9 @@ def get_featured_products(
         if hasattr(p, "variants") and p.variants:
             for v in p.variants:
                 variant_mrp = getattr(v, "mrp", None)
-                variant_price = getattr(v, "special_price", None) or variant_mrp
+                variant_price = float(variant_customer_price(p, v))
                 variant_discount = calculate_discount_percentage(variant_mrp, variant_price)
-                
+
                 product_data["variants"].append(
                     variant_row_for_public_api(v, variant_mrp, variant_price, variant_discount)
                 )

@@ -87,6 +87,7 @@ class AdminProductVariantResponse(BaseModel):
     mrp: Optional[Decimal] = None
     specialPrice: Optional[Decimal] = None
     freeItem: Optional[str] = None
+    images: List[ProductImageResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -187,6 +188,14 @@ class AdminProductResponse(BaseModel):
                     ptype = getattr(v, "packaging_label_type", None)
                     set_pcs = getattr(v, "set_pcs", None)
                     wgt = getattr(v, "weight", None)
+                    v_images = []
+                    try:
+                        v_images = [
+                            ProductImageResponse.model_validate(img)
+                            for img in (getattr(v, "images", None) or [])
+                        ]
+                    except (AttributeError, TypeError):
+                        v_images = []
                     variants.append(
                         AdminProductVariantResponse(
                             id=UUID(str(v.id)),
@@ -198,6 +207,7 @@ class AdminProductResponse(BaseModel):
                             mrp=getattr(v, "mrp", None),
                             specialPrice=getattr(v, "special_price", None),
                             freeItem=getattr(v, "free_item", None),
+                            images=v_images,
                         )
                     )
                 except Exception:

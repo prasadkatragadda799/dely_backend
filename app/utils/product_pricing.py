@@ -68,6 +68,26 @@ def assert_tier_allowed(product: Any, tier: str) -> None:
         )
 
 
+def variant_mrp(variant: Any) -> Decimal:
+    """MRP for a purchasable variant (its own struck-through price)."""
+    m = getattr(variant, "mrp", None)
+    return Decimal(str(m)) if m is not None else Decimal("0")
+
+
+def variant_customer_price(product: Any, variant: Any) -> Decimal:
+    """
+    Customer-facing price for a variant SKU.
+
+    Commission is added on top of the variant's special price, mirroring the tier
+    behaviour in `customer_price_with_commission` so a product's commission policy
+    stays consistent whether the customer buys a tier or a variant.
+    """
+    sp = getattr(variant, "special_price", None)
+    base = Decimal(str(sp)) if sp is not None else variant_mrp(variant)
+    comm = getattr(product, "commission_cost", None) or Decimal("0")
+    return base + Decimal(str(comm))
+
+
 def discount_percent(mrp: Decimal, selling_with_commission: Decimal) -> float:
     if not mrp or mrp <= 0:
         return 0.0

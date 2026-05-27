@@ -11,8 +11,9 @@ class Cart(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
+    variant_id = Column(String(36), ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True, index=True)  # Purchasable variant (SKU); null = tier-priced line
     division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True)  # Product's division at add time
-    price_option_key = Column(String(20), nullable=False, default="unit")  # unit | set | remaining
+    price_option_key = Column(String(20), nullable=False, default="unit")  # unit | set | remaining (used when variant_id is null)
     quantity = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -20,5 +21,6 @@ class Cart(Base):
     # Relationships
     user = relationship("User", back_populates="carts")
     product = relationship("Product", back_populates="cart_items")
+    variant = relationship("ProductVariant")
     division = relationship("Division", back_populates="cart_items")
 

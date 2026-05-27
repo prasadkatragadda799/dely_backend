@@ -84,11 +84,17 @@ async def list_companies(
             Brand.company_id == str(company.id)
         ).scalar() or 0
         
+        zone_data = None
+        if company.zone:
+            zone_data = {"id": company.zone.id, "name": company.zone.name}
+
         company_list.append({
             "id": company.id,
             "name": company.name,
             "description": company.description,
             "logoUrl": company.logo_url or company.logo,  # Support legacy field
+            "zone": zone_data,
+            "zoneId": company.zone_id,
             "totalProducts": product_count,
             "totalBrands": brand_count,
             "createdAt": company.created_at,
@@ -140,11 +146,17 @@ async def get_company(
         Brand.company_id == str(company.id)
     ).scalar() or 0
     
+    zone_data = None
+    if company.zone:
+        zone_data = {"id": company.zone.id, "name": company.zone.name}
+
     company_data = {
         "id": company.id,
         "name": company.name,
         "description": company.description,
         "logoUrl": company.logo_url or company.logo,
+        "zone": zone_data,
+        "zoneId": company.zone_id,
         "totalProducts": product_count,
         "totalBrands": brand_count,
         "createdAt": company.created_at,
@@ -166,6 +178,7 @@ async def create_company(
     description: Optional[str] = Form(None),
     logo: Optional[UploadFile] = File(None),  # Logo file upload
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
+    zoneId: Optional[str] = Form(None),  # Zone assignment
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -194,10 +207,19 @@ async def create_company(
                 detail=f"Error uploading logo: {str(e)}"
             )
     
+    from app.models.zone import Zone as ZoneModel
+    zone_id_val = None
+    if zoneId:
+        zone = db.query(ZoneModel).filter(ZoneModel.id == zoneId).first()
+        if not zone:
+            raise HTTPException(status_code=400, detail="Zone not found")
+        zone_id_val = zoneId
+
     company = Company(
         name=name,
         description=description,
-        logo_url=logo_url
+        logo_url=logo_url,
+        zone_id=zone_id_val,
     )
     
     db.add(company)
@@ -237,6 +259,7 @@ async def update_company(
     description: Optional[str] = Form(None),
     logo: Optional[UploadFile] = File(None),  # New logo file (optional)
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
+    zoneId: Optional[str] = Form(None),  # Zone assignment ("" to unassign)
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
@@ -295,7 +318,20 @@ async def update_company(
     if new_logo_url is not None:
         company.logo_url = new_logo_url
         update_data["logo_url"] = new_logo_url
-    
+
+    # Handle zone assignment/unassignment
+    if zoneId is not None:
+        if zoneId == "":
+            company.zone_id = None
+            update_data["zone_id"] = None
+        else:
+            from app.models.zone import Zone as ZoneModel
+            zone = db.query(ZoneModel).filter(ZoneModel.id == zoneId).first()
+            if not zone:
+                raise HTTPException(status_code=400, detail="Zone not found")
+            company.zone_id = zoneId
+            update_data["zone_id"] = zoneId
+
     db.commit()
     db.refresh(company)
     

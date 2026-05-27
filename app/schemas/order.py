@@ -15,6 +15,10 @@ class OrderItemCreate(BaseModel):
         default=None,
         validation_alias=AliasChoices("price_option_key", "priceOptionKey"),
     )
+    variant_id: Optional[UUID] = Field(
+        default=None,
+        validation_alias=AliasChoices("variant_id", "variantId"),
+    )
 
 
 class OrderCreate(BaseModel):

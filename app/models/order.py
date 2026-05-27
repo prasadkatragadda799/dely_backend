@@ -72,6 +72,8 @@ class OrderItem(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     order_id = Column(String(36), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+    variant_id = Column(String(36), ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True)  # Purchased variant (SKU), if any
+    variant_label = Column(String(255), nullable=True)  # Snapshot of the variant's packaging label at order time
     product_name = Column(String(255), nullable=True)  # Snapshot at time of order
     quantity = Column(Integer, nullable=False)
     # Note: unit_price column doesn't exist in database table yet

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Numeric, DateTime, ForeignKey
+from sqlalchemy import Column, String, Numeric, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -18,11 +18,18 @@ class ProductVariant(Base):
     mrp = Column(Numeric(10, 2), nullable=True)
     special_price = Column(Numeric(10, 2), nullable=True)
     free_item = Column(String(255), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)  # Display/selection order (matches admin form order)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     product = relationship("Product", back_populates="variants")
+    images = relationship(
+        "ProductVariantImage",
+        back_populates="variant",
+        cascade="all, delete-orphan",
+        order_by="ProductVariantImage.display_order",
+    )
 
 

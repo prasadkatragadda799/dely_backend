@@ -2,11 +2,14 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.utils.product_pricing import (
     assert_tier_allowed,
     customer_price_with_commission,
     normalize_price_tier,
     tier_mrp,
+    variant_customer_price,
+    variant_mrp,
 )
 from uuid import UUID
 from decimal import Decimal
@@ -50,10 +53,26 @@ def calculate_order_totals(items: list, db: Session) -> dict:
             else int(getattr(product, "min_order", 1) or 1)
         )
 
-        tier = normalize_price_tier(item.get("price_option_key"))
-        assert_tier_allowed(product, tier)
-        selling_price = customer_price_with_commission(product, tier)
-        mrp = tier_mrp(product, tier)
+        variant = None
+        if item.get("variant_id"):
+            variant = db.query(ProductVariant).filter(
+                ProductVariant.id == str(item["variant_id"]),
+                ProductVariant.product_id == str(item["product_id"]),
+            ).first()
+            if not variant:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Variant {item['variant_id']} not found for product {item['product_id']}",
+                )
+
+        if variant is not None:
+            selling_price = variant_customer_price(product, variant)
+            mrp = variant_mrp(variant)
+        else:
+            tier = normalize_price_tier(item.get("price_option_key"))
+            assert_tier_allowed(product, tier)
+            selling_price = customer_price_with_commission(product, tier)
+            mrp = tier_mrp(product, tier)
 
         if stock_available < qty:
             raise HTTPException(

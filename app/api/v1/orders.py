@@ -8,7 +8,9 @@ from app.schemas.order import OrderCreate, OrderResponse, OrderListResponse, Ord
 from app.schemas.common import ResponseModel
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.services.order_service import generate_order_number, calculate_order_totals
+from app.utils.packaging_label import format_variant_packaging_line
 from app.utils.pagination import paginate
 from app.utils.invoice import build_invoice_data
 from uuid import UUID
@@ -94,8 +96,18 @@ def create_order(
                     detail="Delivery is not available in your location. We don't serve your pincode yet."
                 )
 
-    # Calculate totals
-    items_data = [{"product_id": item.product_id, "quantity": item.quantity} for item in order_data.items]
+    # Calculate totals. Pass price_option_key + variant_id through so the totals are
+    # computed with the SAME price the line items use (variant price or the chosen
+    # tier), keeping order totals == sum of line items.
+    items_data = [
+        {
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "price_option_key": item.price_option_key,
+            "variant_id": item.variant_id,
+        }
+        for item in order_data.items
+    ]
     totals = calculate_order_totals(items_data, db)
     
     # Resolve division_id from first product (for Kitchen / Grocery)
@@ -129,6 +141,7 @@ def create_order(
         assert_tier_allowed,
         customer_price_with_commission,
         normalize_price_tier,
+        variant_customer_price,
     )
 
     order_items_data = []
@@ -137,13 +150,36 @@ def create_order(
         if not product:
             raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
 
-        tier = normalize_price_tier(item.price_option_key)
-        assert_tier_allowed(product, tier)
-        price = customer_price_with_commission(product, tier)
+        variant = None
+        variant_label = None
+        if item.variant_id:
+            variant = db.query(ProductVariant).filter(
+                ProductVariant.id == str(item.variant_id),
+                ProductVariant.product_id == str(item.product_id),
+            ).first()
+            if not variant:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Variant {item.variant_id} not found for product {item.product_id}",
+                )
+
+        if variant is not None:
+            price = variant_customer_price(product, variant)
+            variant_label = format_variant_packaging_line(
+                getattr(variant, "packaging_label_type", None),
+                getattr(variant, "set_pcs", None),
+                getattr(variant, "weight", None),
+            )
+        else:
+            tier = normalize_price_tier(item.price_option_key)
+            assert_tier_allowed(product, tier)
+            price = customer_price_with_commission(product, tier)
 
         order_item = OrderItem(
             order_id=str(order.id),
             product_id=str(item.product_id),
+            variant_id=str(variant.id) if variant is not None else None,
+            variant_label=variant_label,
             product_name=product.name,
             quantity=item.quantity,
             price=price,

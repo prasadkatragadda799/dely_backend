@@ -6,10 +6,11 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import and_, cast, exists, or_, select, String
-from sqlalchemy.orm import Session, joinedload, Query
+from sqlalchemy.orm import Session, joinedload, selectinload, Query
 
 from app.models.admin import Admin, AdminRole
 from app.models.product import Product
+from app.models.product_variant import ProductVariant
 from app.repositories.base import BaseRepository
 from app.core.constants import ExpiryFilter
 
@@ -34,7 +35,7 @@ class ProductRepository(BaseRepository[Product]):
         if load_images:
             options.append(joinedload(Product.product_images))
         if load_variants:
-            options.append(joinedload(Product.variants))
+            options.append(joinedload(Product.variants).selectinload(ProductVariant.images))
         if load_brand:
             options.append(joinedload(Product.brand_rel))
         if load_company:

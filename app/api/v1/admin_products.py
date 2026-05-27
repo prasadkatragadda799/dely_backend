@@ -23,6 +23,7 @@ from app.models.company import Company
 from app.models.category import Category
 from app.models.product_image import ProductImage
 from app.models.product_variant import ProductVariant
+from app.models.product_variant_image import ProductVariantImage
 from app.models.admin import Admin
 from app.api.admin_deps import require_manager_or_above, get_current_active_admin, get_product_service
 from app.services.product_service import ProductService
@@ -196,6 +197,10 @@ async def list_products(
                     "mrp": v.mrp,
                     "specialPrice": getattr(v, "special_price", None),
                     "freeItem": getattr(v, "free_item", None),
+                    "images": [
+                        ProductImageResponse.model_validate(img)
+                        for img in (getattr(v, "images", None) or [])
+                    ],
                 }
                 for v in product_variants
             ],
@@ -524,7 +529,7 @@ async def create_product(
     # Create variants if provided
     created_variants: List[ProductVariant] = []
     if variants_list:
-        for v in variants_list:
+        for idx, v in enumerate(variants_list):
             try:
                 _vh = v.get("hsnCode") if v.get("hsnCode") is not None else v.get("hsn_code")
                 _vh = str(_vh).strip() if _vh is not None else ""
@@ -540,6 +545,7 @@ async def create_product(
                     mrp=v.get("mrp"),
                     special_price=v.get("specialPrice") or v.get("special_price"),
                     free_item=v.get("freeItem") or v.get("free_item"),
+                    sort_order=idx,
                 )
                 db.add(variant)
                 created_variants.append(variant)
@@ -975,33 +981,59 @@ async def update_product(
                     detail="Invalid JSON in variants field",
                 )
 
-        # Delete existing variants
-        db.query(ProductVariant).filter(ProductVariant.product_id == product.id).delete()
-
+        # Upsert variants by id so variant ids stay stable across edits — this
+        # preserves each variant's image gallery and any cart/order references
+        # (variants are purchasable SKUs). Variants omitted from the payload are
+        # deleted; their images cascade and cart/order variant_id is SET NULL.
+        existing_by_id = {str(v.id): v for v in (product.variants or [])}
+        submitted_ids: set = set()
         created_variants: List[ProductVariant] = []
-        for v in variants_list:
+        for idx, v in enumerate(variants_list):
             try:
                 _vh = v.get("hsnCode") if v.get("hsnCode") is not None else v.get("hsn_code")
                 _vh = str(_vh).strip() if _vh is not None else ""
                 variant_hsn = _vh if _vh else product.hsn_code
-                variant = ProductVariant(
-                    product_id=product.id,
-                    hsn_code=variant_hsn,
-                    packaging_label_type=normalize_packaging_label_type(
+                _vid = v.get("id") or v.get("variantId")
+                _vid = str(_vid).strip() if _vid else None
+                target = existing_by_id.get(_vid) if _vid else None
+                if target is not None:
+                    target.hsn_code = variant_hsn
+                    target.packaging_label_type = normalize_packaging_label_type(
                         v.get("packagingLabelType") or v.get("packaging_label_type")
-                    ),
-                    set_pcs=v.get("setPieces") or v.get("set_pcs"),
-                    weight=v.get("weight"),
-                    mrp=v.get("mrp"),
-                    special_price=v.get("specialPrice") or v.get("special_price"),
-                    free_item=v.get("freeItem") or v.get("free_item"),
-                )
-                db.add(variant)
-                created_variants.append(variant)
+                    )
+                    target.set_pcs = v.get("setPieces") or v.get("set_pcs")
+                    target.weight = v.get("weight")
+                    target.mrp = v.get("mrp")
+                    target.special_price = v.get("specialPrice") or v.get("special_price")
+                    target.free_item = v.get("freeItem") or v.get("free_item")
+                    target.sort_order = idx
+                    submitted_ids.add(str(target.id))
+                    created_variants.append(target)
+                else:
+                    variant = ProductVariant(
+                        product_id=product.id,
+                        hsn_code=variant_hsn,
+                        packaging_label_type=normalize_packaging_label_type(
+                            v.get("packagingLabelType") or v.get("packaging_label_type")
+                        ),
+                        set_pcs=v.get("setPieces") or v.get("set_pcs"),
+                        weight=v.get("weight"),
+                        mrp=v.get("mrp"),
+                        special_price=v.get("specialPrice") or v.get("special_price"),
+                        free_item=v.get("freeItem") or v.get("free_item"),
+                        sort_order=idx,
+                    )
+                    db.add(variant)
+                    created_variants.append(variant)
             except Exception as e:
                 logger.error(
                     f"Error updating product variant for product {product.id}: {str(e)}"
                 )
+
+        # Remove variants the client dropped from the list
+        for _old_id, _old_variant in existing_by_id.items():
+            if _old_id not in submitted_ids:
+                db.delete(_old_variant)
 
         # Keep admin-entered product-level prices authoritative.
         # Only fall back to first variant pricing when the request did not
@@ -1296,6 +1328,120 @@ async def upload_product_images(
         },
         message="Images uploaded successfully"
     )
+
+
+# ── Per-variant image gallery ────────────────────────────────────────────────
+
+def _get_owned_variant(db: Session, product_id: UUID, variant_id: UUID) -> ProductVariant:
+    """Load a variant and confirm it belongs to the given product (else 404)."""
+    product_id_str = str(product_id).strip()
+    allowed_product_ids = {product_id_str, product_id_str.replace("-", "")}
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == str(variant_id).strip()
+    ).first()
+    if not variant or str(variant.product_id) not in allowed_product_ids:
+        raise HTTPException(status_code=404, detail="Variant not found for this product")
+    return variant
+
+
+@router.post("/{product_id}/variants/{variant_id}/images", response_model=ResponseModel)
+async def upload_variant_images(
+    product_id: UUID,
+    variant_id: UUID,
+    request: Request,
+    primaryIndex: Optional[int] = Form(None),
+    primary_index: Optional[int] = Form(None),
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """Upload one or more images for a single product variant (its own gallery)."""
+    variant = _get_owned_variant(db, product_id, variant_id)
+    image_files = await _collect_multipart_images(request)
+    if not image_files:
+        raise HTTPException(status_code=400, detail="No images provided")
+
+    primary_idx = primaryIndex if primaryIndex is not None else primary_index
+
+    uploaded: List[ProductVariantImage] = []
+    max_display_order = db.query(func.max(ProductVariantImage.display_order)).filter(
+        ProductVariantImage.product_variant_id == variant.id
+    ).scalar() or 0
+
+    for idx, image in enumerate(image_files):
+        if not image.filename:
+            continue
+        try:
+            image_url = save_uploaded_file(image, "variant", variant.id, request)
+            vimg = ProductVariantImage(
+                product_variant_id=variant.id,
+                image_url=image_url,
+                display_order=max_display_order + idx + 1,
+                is_primary=(primary_idx is not None and idx == primary_idx),
+            )
+            db.add(vimg)
+            uploaded.append(vimg)
+        except Exception as e:
+            logger.error(f"Error uploading variant image {image.filename}: {str(e)}")
+
+    if primary_idx is not None and uploaded:
+        db.query(ProductVariantImage).filter(
+            ProductVariantImage.product_variant_id == variant.id,
+            ProductVariantImage.id.notin_([img.id for img in uploaded]),
+        ).update({"is_primary": False}, synchronize_session=False)
+
+    db.commit()
+    for img in uploaded:
+        db.refresh(img)
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="variant_images_uploaded",
+        entity_type="product_variant",
+        entity_id=variant.id,
+        details={"product_id": str(product_id), "image_count": len(uploaded)},
+        request=request,
+    )
+
+    return ResponseModel(
+        success=True,
+        data={"images": [ProductImageResponse.model_validate(img) for img in uploaded]},
+        message="Variant images uploaded successfully",
+    )
+
+
+@router.delete("/{product_id}/variants/{variant_id}/images/{image_id}", response_model=ResponseModel)
+async def delete_variant_image(
+    product_id: UUID,
+    variant_id: UUID,
+    image_id: UUID,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """Delete a single image from a variant's gallery."""
+    variant = _get_owned_variant(db, product_id, variant_id)
+    image = db.query(ProductVariantImage).filter(
+        ProductVariantImage.id == str(image_id).strip(),
+        ProductVariantImage.product_variant_id == variant.id,
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Variant image not found")
+
+    db.delete(image)
+    db.commit()
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="variant_image_deleted",
+        entity_type="product_variant",
+        entity_id=variant.id,
+        details={"product_id": str(product_id), "image_id": str(image_id)},
+        request=request,
+    )
+
+    return ResponseModel(success=True, message="Variant image deleted")
 
 
 # ── Service Area (location-based visibility) ─────────────────────────────────
