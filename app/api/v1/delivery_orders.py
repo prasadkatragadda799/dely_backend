@@ -416,6 +416,126 @@ async def revert_order_to_hub(
     )
 
 
+@router.get("/returns/assigned", response_model=ResponseModel)
+async def get_assigned_return_pickups(
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """
+    Get return pickups assigned to this delivery person.
+    Returns items with status pickup_assigned or picked_up.
+    """
+    from app.models.order_return import OrderReturn
+
+    returns = (
+        db.query(OrderReturn)
+        .filter(
+            OrderReturn.delivery_person_id == delivery_person.id,
+            OrderReturn.status.in_(["pickup_assigned", "picked_up"]),
+        )
+        .order_by(OrderReturn.updated_at.desc())
+        .all()
+    )
+
+    result = []
+    for ret in returns:
+        order = ret.order
+        customer_name = "Customer"
+        customer_phone = "N/A"
+        if order and order.user:
+            customer_name = order.user.name
+            customer_phone = order.user.phone or "N/A"
+        result.append({
+            "returnId": ret.id,
+            "orderId": ret.order_id,
+            "orderNumber": order.order_number if order else None,
+            "status": ret.status,
+            "reason": ret.reason,
+            "customerName": customer_name,
+            "customerPhone": customer_phone,
+            "deliveryAddress": order.delivery_address if order else {},
+            "mediaUrls": ret.media_urls or [],
+            "orderTotal": float(order.total_amount or order.total or 0) if order else 0,
+            "paymentMethod": order.payment_method if order else None,
+            "createdAt": ret.created_at.isoformat(),
+        })
+
+    return ResponseModel(
+        success=True,
+        data={"returns": result, "total": len(result)},
+        message="Assigned return pickups retrieved",
+    )
+
+
+@router.put("/returns/{return_id}/status", response_model=ResponseModel)
+async def update_return_pickup_status(
+    return_id: str,
+    payload: dict,
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """
+    Update return pickup status.
+    Allowed transitions: pickup_assigned → picked_up → received_at_hub
+    """
+    from app.models.order_return import OrderReturn
+
+    ret = db.query(OrderReturn).filter(
+        OrderReturn.id == return_id,
+        OrderReturn.delivery_person_id == delivery_person.id,
+    ).first()
+
+    if not ret:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Return pickup not found or not assigned to you",
+        )
+
+    requested = (payload.get("status") or "").strip().lower()
+    now = datetime.utcnow()
+
+    if requested == "picked_up":
+        if ret.status != "pickup_assigned":
+            raise HTTPException(status_code=400, detail="Return must be in pickup_assigned status")
+        ret.status = "picked_up"
+        ret.picked_up_at = now
+    elif requested == "received_at_hub":
+        if ret.status != "picked_up":
+            raise HTTPException(status_code=400, detail="Return must be picked_up before receiving at hub")
+        ret.status = "received_at_hub"
+        ret.received_at_hub_at = now
+    else:
+        raise HTTPException(status_code=400, detail="status must be 'picked_up' or 'received_at_hub'")
+
+    ret.updated_at = now
+    db.commit()
+
+    if ret.user_id:
+        try:
+            from app.utils.notification_helper import create_notification
+            msg = (
+                "Your return item has been picked up and is on the way to our hub."
+                if requested == "picked_up"
+                else "Your return has been received at our hub. Refund will be processed within 10 working days."
+            )
+            create_notification(
+                db=db,
+                user_id=ret.user_id,
+                type="order",
+                title=f"Return update for Order #{ret.order.order_number if ret.order else ret.order_id}",
+                message=msg,
+                data={"return_id": ret.id, "order_id": ret.order_id, "status": requested},
+            )
+        except Exception:
+            db.rollback()
+
+    return ResponseModel(
+        success=True,
+        data={"returnId": ret.id, "status": ret.status},
+        message=f"Return status updated to {ret.status}",
+    )
+
+
 @router.post("/location", response_model=ResponseModel)
 async def update_location(
     location: LocationUpdate,

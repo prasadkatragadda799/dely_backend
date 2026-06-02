@@ -25,6 +25,7 @@ from app.models.delivery_person import DeliveryPerson
 from app.models.division import Division
 from app.models.product_service_area import ProductServiceArea
 from app.models.zone import Zone, ZonePincode
+from app.models.order_return import OrderReturn
 
 __all__ = [
     "User",
@@ -57,5 +58,6 @@ __all__ = [
     "ProductServiceArea",
     "Zone",
     "ZonePincode",
+    "OrderReturn",
 ]
 

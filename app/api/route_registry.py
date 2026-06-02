@@ -51,6 +51,7 @@ from app.api.v1 import (
     delivery_dashboard,
     admin_delivery,
     admin_zones,
+    admin_returns,
 )
 from app.web import legal_routes
 
@@ -108,6 +109,7 @@ def register_routes(app: FastAPI) -> None:
         (admin_invoices.router, "/admin/orders", ["Admin Invoices"]),
         (admin_delivery.router, "/admin/delivery", ["Admin Delivery"]),
         (admin_zones.router, "/admin/zones", ["Admin Zones"]),
+        (admin_returns.router, "/admin/returns", ["Admin Returns"]),
     ]
     for router, prefix, tags in admin_routes:
         app.include_router(router, prefix=prefix, tags=tags)

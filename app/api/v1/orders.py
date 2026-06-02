@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -13,6 +13,7 @@ from app.services.order_service import generate_order_number, calculate_order_to
 from app.utils.packaging_label import format_variant_packaging_line
 from app.utils.pagination import paginate
 from app.utils.invoice import build_invoice_data
+from app.config import settings
 from uuid import UUID
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -453,3 +454,152 @@ def track_order(
     
     return ResponseModel(success=True, data=tracking)
 
+
+RETURN_WINDOW_DAYS = 7
+ALLOWED_MEDIA_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.mov', '.avi', '.mkv', '.webm'}
+MAX_MEDIA_SIZE = 50 * 1024 * 1024  # 50 MB (videos can be large)
+
+
+def _return_deadline_exceeded(order: Order) -> bool:
+    """True if the 7-day return window has closed."""
+    reference = order.updated_at or order.created_at
+    return (datetime.utcnow() - reference).days > RETURN_WINDOW_DAYS
+
+
+@router.post("/{order_id}/return", response_model=ResponseModel, status_code=201)
+async def initiate_return(
+    order_id: UUID,
+    request: Request,
+    reason: str = Form(..., min_length=5),
+    bank_account_number: Optional[str] = Form(default=None),
+    bank_ifsc_code: Optional[str] = Form(default=None),
+    bank_account_holder: Optional[str] = Form(default=None),
+    bank_name: Optional[str] = Form(default=None),
+    files: Optional[List[UploadFile]] = File(default=None),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Initiate a return request for a delivered order within 7 days.
+    Accepts multipart/form-data with reason, optional bank details (for COD),
+    and up to 5 media files (images + 1 video).
+    """
+    from app.models.order_return import OrderReturn
+    from pathlib import Path
+    import uuid as uuid_module
+
+    order_id_str = str(order_id)
+    order = db.query(Order).filter(
+        Order.id == order_id_str,
+        Order.user_id == str(current_user.id),
+    ).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status.value not in ("delivered", "completed"):
+        raise HTTPException(status_code=400, detail="Only delivered orders can be returned")
+
+    if _return_deadline_exceeded(order):
+        raise HTTPException(status_code=400, detail=f"Return window of {RETURN_WINDOW_DAYS} days has passed")
+
+    existing = db.query(OrderReturn).filter(OrderReturn.order_id == order_id_str).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="A return request already exists for this order")
+
+    # Persist media files
+    media_urls: List[Dict[str, str]] = []
+    if files:
+        upload_files = [f for f in files if f and f.filename]
+        if len(upload_files) > 5:
+            raise HTTPException(status_code=400, detail="Maximum 5 media files allowed")
+
+        return_dir_id = str(uuid_module.uuid4())
+        base_url = settings.CDN_BASE_URL or str(request.base_url).rstrip("/")
+
+        for f in upload_files:
+            ext = Path(f.filename).suffix.lower() if f.filename else ""
+            if ext not in ALLOWED_MEDIA_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+            content = await f.read()
+            if len(content) > MAX_MEDIA_SIZE:
+                raise HTTPException(status_code=400, detail="File exceeds 50 MB limit")
+            media_type = "video" if ext in {".mp4", ".mov", ".avi", ".mkv", ".webm"} else "image"
+            unique_name = f"{uuid_module.uuid4()}{ext}"
+            upload_dir = Path(settings.UPLOAD_DIR) / "return" / return_dir_id
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            with open(upload_dir / unique_name, "wb") as fp:
+                fp.write(content)
+            media_urls.append({"url": f"{base_url}/uploads/return/{return_dir_id}/{unique_name}", "type": media_type})
+
+    return_request = OrderReturn(
+        order_id=order_id_str,
+        user_id=str(current_user.id),
+        reason=reason.strip(),
+        media_urls=media_urls or None,
+        bank_account_number=bank_account_number.strip() if bank_account_number else None,
+        bank_ifsc_code=bank_ifsc_code.strip().upper() if bank_ifsc_code else None,
+        bank_account_holder=bank_account_holder.strip() if bank_account_holder else None,
+        bank_name=bank_name.strip() if bank_name else None,
+    )
+    db.add(return_request)
+    db.commit()
+    db.refresh(return_request)
+
+    try:
+        from app.utils.notification_helper import create_notification
+        create_notification(
+            db=db,
+            user_id=str(current_user.id),
+            type="order",
+            title=f"Return request submitted for Order #{order.order_number}",
+            message="We've received your return request and will review it shortly.",
+            data={"order_id": order_id_str, "return_id": return_request.id},
+        )
+    except Exception:
+        db.rollback()
+
+    return ResponseModel(
+        success=True,
+        data={"returnId": return_request.id, "status": return_request.status},
+        message="Return request submitted successfully",
+    )
+
+
+@router.get("/{order_id}/return", response_model=ResponseModel)
+def get_return_status(
+    order_id: UUID,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the return request status for an order."""
+    from app.models.order_return import OrderReturn
+
+    order_id_str = str(order_id)
+    order = db.query(Order).filter(
+        Order.id == order_id_str,
+        Order.user_id == str(current_user.id),
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    ret = db.query(OrderReturn).filter(OrderReturn.order_id == order_id_str).first()
+    if not ret:
+        raise HTTPException(status_code=404, detail="No return request found for this order")
+
+    is_cod = (order.payment_method or "").lower() in COD_ALIASES
+    return ResponseModel(
+        success=True,
+        data={
+            "returnId": ret.id,
+            "status": ret.status,
+            "reason": ret.reason,
+            "mediaUrls": ret.media_urls or [],
+            "adminNotes": ret.admin_notes,
+            "isCod": is_cod,
+            "hasBankDetails": bool(ret.bank_account_number),
+            "createdAt": ret.created_at.isoformat(),
+            "updatedAt": ret.updated_at.isoformat(),
+        },
+        message="Return status retrieved",
+    )

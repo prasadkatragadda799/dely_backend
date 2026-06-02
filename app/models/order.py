@@ -56,6 +56,7 @@ class Order(Base):
     delivery_person = relationship("DeliveryPerson")
     order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     status_history = relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan", order_by="OrderStatusHistory.created_at")
+    return_request = relationship("OrderReturn", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
     @property
     def items_count(self) -> int:
