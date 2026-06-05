@@ -1260,6 +1260,68 @@ async def bulk_update_products(
     )
 
 
+@router.post("/migrate-legacy-variants", response_model=ResponseModel)
+async def migrate_legacy_variants(
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """
+    One-time migration: create a default first variant for every product that
+    currently has no variants.  Uses the product's own mrp / selling_price /
+    unit / pieces_per_set / hsn_code to seed the variant row.
+    """
+    _unit_to_label: dict[str, str] = {"set": "set", "pack": "pack", "pair": "pair", "dozen": "dozen"}
+
+    products_without_variants = (
+        db.query(Product)
+        .outerjoin(Product.variants)
+        .filter(ProductVariant.id.is_(None))
+        .all()
+    )
+
+    migrated = 0
+    skipped = 0
+    for product in products_without_variants:
+        try:
+            label_type = _unit_to_label.get(str(product.unit or "").strip().lower(), "unit")
+            pps = int(product.pieces_per_set) if product.pieces_per_set and int(product.pieces_per_set) > 1 else None
+            variant = ProductVariant(
+                product_id=product.id,
+                hsn_code=product.hsn_code,
+                packaging_label_type=label_type,
+                set_pcs=str(pps) if pps else None,
+                weight=None,
+                mrp=product.mrp,
+                special_price=product.selling_price,
+                free_item=None,
+                sort_order=0,
+            )
+            db.add(variant)
+            migrated += 1
+        except Exception as e:
+            logger.error(f"migrate_legacy_variants: skipped product {product.id}: {e}")
+            skipped += 1
+
+    if migrated:
+        db.commit()
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="migrate_legacy_variants",
+        entity_type="product",
+        details={"migrated": migrated, "skipped": skipped},
+        request=request,
+    )
+
+    return ResponseModel(
+        success=True,
+        data={"migrated": migrated, "skipped": skipped},
+        message=f"Migration complete: {migrated} product(s) seeded with a default variant, {skipped} skipped.",
+    )
+
+
 @router.post("/{product_id}/images", response_model=ResponseModel)
 async def upload_product_images(
     product_id: UUID,
