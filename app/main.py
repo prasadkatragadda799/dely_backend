@@ -233,34 +233,104 @@ register_routes(app)
 uploads_dir = Path(settings.UPLOAD_DIR)
 uploads_dir.mkdir(parents=True, exist_ok=True)
 
-@app.get("/uploads/{file_path:path}")
-async def serve_uploaded_file(file_path: str):
-    """Serve uploaded files"""
-    import mimetypes
-    file_full_path = uploads_dir / file_path
-    if file_full_path.exists() and file_full_path.is_file():
-        # Determine content type from file extension
-        content_type, _ = mimetypes.guess_type(str(file_full_path))
-        if not content_type:
-            # Default to image if we can't determine
-            if file_full_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
-                content_type = 'image/jpeg' if file_full_path.suffix.lower() == '.jpg' else f'image/{file_full_path.suffix[1:].lower()}'
+_RESIZE_CACHE_DIR = uploads_dir / "_resized"
+_RESIZABLE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def _resized_variant(src: Path, width: int, quality: int):
+    """Return a path to a width-resized, compressed copy of ``src`` (cached on
+    disk), or ``None`` if resizing isn't possible. Never upscales. Photos are
+    served as progressive JPEG; images with transparency stay PNG."""
+    try:
+        import hashlib
+        from PIL import Image as PILImage
+
+        width = max(16, min(int(width), 2000))
+        quality = max(40, min(int(quality), 95))
+        stat = src.stat()
+        # mtime in the key auto-invalidates the cache if the original changes.
+        rel = src.relative_to(uploads_dir)
+        digest = hashlib.sha1(
+            f"{rel}|{width}|{quality}|{int(stat.st_mtime)}".encode()
+        ).hexdigest()
+
+        with PILImage.open(src) as im:
+            has_alpha = im.mode in ("RGBA", "LA") or (
+                im.mode == "P" and "transparency" in im.info
+            )
+            out_ext = "png" if has_alpha else "jpg"
+            out_path = _RESIZE_CACHE_DIR / f"{digest}.{out_ext}"
+            if out_path.exists():
+                return out_path
+
+            if im.width > width:
+                height = max(1, round(im.height * (width / im.width)))
+                im = im.resize((width, height), PILImage.LANCZOS)
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            if has_alpha:
+                im.save(out_path, format="PNG", optimize=True)
             else:
-                content_type = 'application/octet-stream'
-        
-        return FileResponse(
-            file_full_path,
-            media_type=content_type,
-            headers={
-                "Cache-Control": "public, max-age=3600",
-                "Access-Control-Allow-Origin": "*"
-            }
-        )
-    else:
-        return JSONResponse(
-            status_code=404,
-            content={"detail": "File not found"}
-        )
+                im.convert("RGB").save(
+                    out_path,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                    progressive=True,
+                )
+        return out_path
+    except Exception:
+        # Any failure falls back to serving the original file.
+        return None
+
+
+@app.get("/uploads/{file_path:path}")
+def serve_uploaded_file(file_path: str, w: int | None = None, q: int = 80):
+    """Serve uploaded files, optionally resized on the fly via ``?w=<px>``.
+
+    Resized variants are cached to disk so only the first request pays the
+    processing cost; subsequent requests serve the cached file directly.
+    """
+    import mimetypes
+
+    file_full_path = uploads_dir / file_path
+    # Guard against path traversal escaping the uploads directory.
+    try:
+        if not file_full_path.resolve().is_relative_to(uploads_dir.resolve()):
+            return JSONResponse(status_code=404, content={"detail": "File not found"})
+    except Exception:
+        return JSONResponse(status_code=404, content={"detail": "File not found"})
+
+    if not (file_full_path.exists() and file_full_path.is_file()):
+        return JSONResponse(status_code=404, content={"detail": "File not found"})
+
+    serve_path = file_full_path
+    resized = False
+    if w and file_full_path.suffix.lower() in _RESIZABLE_EXTS:
+        variant = _resized_variant(file_full_path, w, q)
+        if variant is not None:
+            serve_path = variant
+            resized = True
+
+    content_type, _ = mimetypes.guess_type(str(serve_path))
+    if not content_type:
+        if serve_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+            content_type = 'image/jpeg' if serve_path.suffix.lower() == '.jpg' else f'image/{serve_path.suffix[1:].lower()}'
+        else:
+            content_type = 'application/octet-stream'
+
+    # Resized variants are immutable for a given (path, w, q); cache hard.
+    cache_control = (
+        "public, max-age=31536000, immutable" if resized else "public, max-age=3600"
+    )
+    return FileResponse(
+        serve_path,
+        media_type=content_type,
+        headers={
+            "Cache-Control": cache_control,
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 @app.get("/")
