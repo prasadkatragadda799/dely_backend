@@ -532,6 +532,15 @@ async def initiate_return(
                 fp.write(content)
             media_urls.append({"url": f"{base_url}/uploads/return/{return_dir_id}/{unique_name}", "type": media_type})
 
+    # Media evidence is mandatory: at least one photo and one video of the item.
+    has_image = any(m.get("type") == "image" for m in media_urls)
+    has_video = any(m.get("type") == "video" for m in media_urls)
+    if not (has_image and has_video):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one photo and one video of the item are required for a return.",
+        )
+
     return_request = OrderReturn(
         order_id=order_id_str,
         user_id=str(current_user.id),
