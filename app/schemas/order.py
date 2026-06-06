@@ -75,6 +75,9 @@ class OrderListResponse(BaseModel):
     # Snapshot of the address the order was placed for; surfaced in the orders
     # list UI so customers can see where each order is going without opening it.
     delivery_address: Optional[Dict[str, Any]] = None
+    # Status of this order's return request, if one exists (None otherwise). Lets the
+    # app render the return journey inline on the order without an extra request.
+    return_status: Optional[str] = None
     created_at: datetime
 
     class Config:

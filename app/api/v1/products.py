@@ -77,6 +77,7 @@ def get_products(
     sort: Optional[str] = Query("created_at", pattern="^(price_asc|price_desc|name|popularity|created_at)$"),
     featured: Optional[bool] = None,
     pincode: Optional[str] = Query(None, description="Customer's delivery pincode — filters out products not serviceable there."),
+    deliver_to: Optional[str] = Query(None, description="Customer's delivery pincode — annotates each product with a `deliverable` flag (show-all, mark-unavailable) instead of filtering."),
     current_user = Depends(require_kyc_verified),
     db: Session = Depends(get_db)
 ):
@@ -214,6 +215,35 @@ def get_products(
         .all()
     )
 
+    # ── Deliverability annotation (show-all, mark-unavailable) ──────────────
+    # When `deliver_to` is supplied we do NOT filter the catalog; instead each
+    # product is flagged `deliverable` so the app can show everything and disable
+    # Add for items the seller's zone (or product service area) can't reach.
+    deliverable_by_id: dict = {}
+    if deliver_to:
+        dp = deliver_to.strip()
+        page_ids = [p.id for p in products]
+        zone_ids = {
+            r[0] for r in db.query(ZonePincode.zone_id)
+            .filter(ZonePincode.pincode == dp).all()
+        }
+        restricted_ids = {
+            r[0] for r in db.query(ProductServiceArea.product_id)
+            .filter(ProductServiceArea.product_id.in_(page_ids)).distinct().all()
+        } if page_ids else set()
+        match_ids = {
+            r[0] for r in db.query(ProductServiceArea.product_id)
+            .filter(
+                ProductServiceArea.product_id.in_(page_ids),
+                ProductServiceArea.pincode == dp,
+            ).all()
+        } if page_ids else set()
+        for p in products:
+            comp_zone = p.company.zone_id if p.company else None
+            zone_ok = comp_zone is None or comp_zone in zone_ids
+            sa_ok = (p.id not in restricted_ids) or (p.id in match_ids)
+            deliverable_by_id[p.id] = bool(zone_ok and sa_ok)
+
     # Format products with enhanced data
     product_list = []
     for p in products:
@@ -238,6 +268,7 @@ def get_products(
             "specifications": p.specifications or {},
             "isFeatured": p.is_featured,
             "isAvailable": p.is_available,
+            "deliverable": deliverable_by_id.get(p.id, True),
             "images": [],
             "createdAt": p.created_at.isoformat() if p.created_at else None
         }

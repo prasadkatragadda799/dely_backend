@@ -59,6 +59,14 @@ class Order(Base):
     return_request = relationship("OrderReturn", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
     @property
+    def return_status(self):
+        """Status of this order's return request, if any (else None)."""
+        try:
+            return self.return_request.status if self.return_request else None
+        except Exception:
+            return None
+
+    @property
     def items_count(self) -> int:
         """Number of line items on the order. Surfaced via OrderListResponse."""
         try:
