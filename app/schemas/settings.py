@@ -22,6 +22,9 @@ class PaymentSettings(BaseModel):
     cashOnDeliveryEnabled: Optional[bool] = None
     defaultCreditLimit: Optional[float] = None
     paymentTermsDays: Optional[int] = None
+    # Merchant UPI ID (VPA) + payee name for the dynamic, amount-embedded UPI QR.
+    upiId: Optional[str] = None
+    upiPayeeName: Optional[str] = None
 
 
 # Delivery Settings

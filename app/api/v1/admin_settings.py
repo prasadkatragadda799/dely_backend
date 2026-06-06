@@ -35,6 +35,11 @@ def _cod_only_payment_settings(existing: Optional[dict] = None) -> dict:
     # Preserve QR URL if already set
     if "paymentQrUrl" not in base:
         base["paymentQrUrl"] = None
+    # Merchant UPI ID (VPA) + payee name for the dynamic amount-embedded UPI QR.
+    if "upiId" not in base:
+        base["upiId"] = None
+    if "upiPayeeName" not in base:
+        base["upiPayeeName"] = None
     return base
 
 
@@ -178,7 +183,12 @@ async def update_payment_settings(
 ):
     """Update payment settings"""
     current_settings = _cod_only_payment_settings(get_setting(db, "payment"))
-    # Keep this endpoint idempotent and COD-only regardless of incoming payload.
+    # COD remains the only enabled checkout method, but the merchant UPI ID (used
+    # to generate the amount-embedded "scan to pay" QR) is admin-configurable.
+    if settings_data.upiId is not None:
+        current_settings["upiId"] = settings_data.upiId.strip() or None
+    if settings_data.upiPayeeName is not None:
+        current_settings["upiPayeeName"] = settings_data.upiPayeeName.strip() or None
     update_setting(db, "payment", _cod_only_payment_settings(current_settings))
 
     # Log activity

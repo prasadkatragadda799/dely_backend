@@ -123,6 +123,36 @@ async def get_assigned_orders(
     )
 
 
+@router.get("/{order_id}/upi-qr", response_model=ResponseModel)
+async def get_delivery_order_upi_qr(
+    order_id: str,
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """UPI QR (merchant VPA + this order's amount) for collecting payment at the door."""
+    from app.api.v1.admin_settings import get_setting
+    from app.utils.upi import upi_qr_payload
+
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.delivery_person_id == delivery_person.id,
+    ).first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found or not assigned to you",
+        )
+
+    payment = get_setting(db, "payment") or {}
+    vpa = (payment.get("upiId") or "").strip()
+    if not vpa:
+        raise HTTPException(status_code=400, detail="UPI payment is not configured by the admin.")
+    payee = (payment.get("upiPayeeName") or "DelyCart").strip()
+    amount = float(getattr(order, "total_amount", None) or getattr(order, "total", None) or 0)
+    data = upi_qr_payload(vpa, payee, amount, getattr(order, "order_number", None), order.id)
+    return ResponseModel(success=True, data=data, message="UPI QR generated")
+
+
 @router.get("/{order_id}", response_model=ResponseModel)
 async def get_order_details(
     order_id: str,
