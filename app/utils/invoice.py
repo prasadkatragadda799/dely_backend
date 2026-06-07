@@ -335,7 +335,11 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
                 "payeeName": payee,
                 "invoiceNumber": invoice_number,
             }
-    except Exception:
+    except Exception as exc:
+        # Don't let QR generation break the invoice, but make the reason visible
+        # (e.g. the `qrcode` package not installed in the deployed environment).
+        import logging
+        logging.getLogger(__name__).warning("Invoice UPI QR generation failed: %s", exc, exc_info=True)
         upi_qr = None
 
     return {
