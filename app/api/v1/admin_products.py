@@ -1071,15 +1071,21 @@ async def update_product(
                 detail="keepImageIds must be a JSON array",
             )
         keep_set = {str(x) for x in keep_list}
-        for im in (
+        existing_images = (
             db.query(ProductImage)
             .filter(ProductImage.product_id == product.id)
             .all()
-        ):
-            if im.id not in keep_set:
-                db.delete(im)
-        db.commit()
-        db.refresh(product)
+        )
+        has_new_uploads = any(getattr(f, "filename", None) for f in (image_files or []))
+        # Safety net: an empty keep-list with no replacement uploads is the signature of an
+        # edit form that failed to load the existing gallery (the classic "edit details →
+        # images vanish" bug), NOT an intentional "remove everything". Skip deletion then.
+        if existing_images and (keep_set or has_new_uploads):
+            for im in existing_images:
+                if im.id not in keep_set:
+                    db.delete(im)
+            db.commit()
+            db.refresh(product)
 
     # Handle image uploads if provided
     if image_files:
