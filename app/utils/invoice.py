@@ -291,10 +291,22 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         }
         invoice_items.append(invoice_item)
 
-    subtotal = total_taxable_amount
-    total_tax = total_sgst + total_cgst + total_igst
+    # Single source of truth: the invoice totals mirror what the order was actually
+    # charged (order.total_amount), so the invoice, the QR, and the orders list always
+    # agree. Fall back to recomputed line-item sums for legacy rows missing totals.
+    subtotal = (
+        Decimal(str(order.subtotal)) if getattr(order, "subtotal", None) is not None
+        else total_taxable_amount
+    )
+    total_tax = (
+        Decimal(str(order.tax)) if getattr(order, "tax", None) is not None
+        else (total_sgst + total_cgst + total_igst)
+    )
     delivery_charge = Decimal(str(order.delivery_charge)) if order.delivery_charge else Decimal("0")
-    grand_total = subtotal + total_tax + delivery_charge
+    grand_total = (
+        Decimal(str(order.total_amount)) if getattr(order, "total_amount", None) is not None
+        else (subtotal + total_tax + delivery_charge)
+    )
     rounded_total, round_off = round_to_nearest_rupee(grand_total)
 
     tax_details_list = []
