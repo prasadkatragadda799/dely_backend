@@ -313,6 +313,31 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
     invoice_date = order.created_at if order.created_at else datetime.utcnow()
     invoice_time = invoice_date.strftime("%I:%M %p") if invoice_date else "11:00 AM"
 
+    # Dynamic UPI QR: pay the exact invoice total to the business UPI ID, with the
+    # invoice number as the transaction note/reference. No payment gateway needed.
+    upi_qr = None
+    try:
+        from app.api.v1.admin_settings import get_setting
+        from app.utils.upi import build_upi_uri, qr_png_data_uri
+        payment = get_setting(db, "payment") or {}
+        vpa = (payment.get("upiId") or "").strip()
+        if vpa:
+            payee = (payment.get("upiPayeeName") or "DelyCart").strip()
+            uri = build_upi_uri(
+                vpa, payee, float(rounded_total),
+                note=f"Invoice {invoice_number}", ref=invoice_number,
+            )
+            upi_qr = {
+                "upiUri": uri,
+                "qrImage": qr_png_data_uri(uri),
+                "amount": round(float(rounded_total), 2),
+                "vpa": vpa,
+                "payeeName": payee,
+                "invoiceNumber": invoice_number,
+            }
+    except Exception:
+        upi_qr = None
+
     return {
         "invoice_number": invoice_number,
         "reference_number": invoice_number,
@@ -336,6 +361,7 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         "round_off": float(round_off),
         "total": float(rounded_total),
         "grand_total": float(rounded_total),
+        "upiQr": upi_qr,
         "paid_amount": float(rounded_total) if getattr(order, "payment_status", None) == "paid" else float(0),
         "balance": float(0) if getattr(order, "payment_status", None) == "paid" else float(rounded_total),
         "savings": float(savings),

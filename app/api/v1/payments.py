@@ -12,43 +12,6 @@ import secrets
 router = APIRouter()
 
 
-@router.get("/upi-qr/{order_id}", response_model=ResponseModel)
-def get_order_upi_qr(
-    order_id: str,
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Generate an amount-embedded UPI QR for the customer to pay an order.
-
-    Uses the admin-configured Merchant UPI ID (no payment gateway / API key).
-    """
-    from app.api.v1.admin_settings import get_setting
-    from app.utils.upi import upi_qr_payload
-
-    order = db.query(Order).filter(
-        Order.id == str(order_id),
-        Order.user_id == str(current_user.id),
-    ).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    payment = get_setting(db, "payment") or {}
-    vpa = (payment.get("upiId") or "").strip()
-    if not vpa:
-        raise HTTPException(
-            status_code=400,
-            detail="UPI payment is not configured. Ask an admin to set the Merchant UPI ID in Settings.",
-        )
-    payee = (payment.get("upiPayeeName") or "DelyCart").strip()
-    amount = float(
-        getattr(order, "total_amount", None)
-        or getattr(order, "total", None)
-        or 0
-    )
-    data = upi_qr_payload(vpa, payee, amount, getattr(order, "order_number", None), order.id)
-    return ResponseModel(success=True, data=data, message="UPI QR generated")
-
-
 @router.post("/initiate", response_model=ResponseModel)
 def initiate_payment(
     payment_data: PaymentInitiate,
