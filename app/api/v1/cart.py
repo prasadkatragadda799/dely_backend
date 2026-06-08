@@ -1,3 +1,4 @@
+import math
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
@@ -32,7 +33,9 @@ def _min_line_qty_for_tier(product: Product, tier: str) -> int:
     Convert product.min_order_quantity (always in pieces) into the minimum
     cart-line quantity for the selected price tier.
 
-    Example: pieces_per_set=12, min_order_quantity=12, tier='set' → 1 set.
+    Examples:
+      pieces_per_set=6, min_order_quantity=6, tier='set'  → 1 set
+      pieces_per_set=6, min_order_quantity=6, unit='set', tier='unit' → 1 (natural-set)
     """
     min_order = (
         product.min_order_quantity
@@ -40,10 +43,15 @@ def _min_line_qty_for_tier(product: Product, tier: str) -> int:
         else (product.min_order if hasattr(product, "min_order") and product.min_order else 1)
     )
     min_order = max(1, int(min_order))
-    if tier == "set":
-        pcs = max(1, int(product.pieces_per_set or 1))
-        if pcs > 1 and min_order > 1 and min_order % pcs == 0:
-            return max(1, min_order // pcs)
+    pcs = max(1, int(product.pieces_per_set or 1))
+    unit = (getattr(product, "unit", None) or "piece").lower()
+    # Natural-set: the sale unit is already a set (e.g. unit='set', piecesPerSet=6).
+    # min_order_quantity may have been entered as a piece count by the admin, so
+    # divide it back to get the minimum number of sale units (sets).
+    is_natural_set = pcs > 1 and unit != "piece"
+    if tier == "set" or (tier == "unit" and is_natural_set):
+        if pcs > 1 and min_order >= 1:
+            return max(1, math.ceil(min_order / pcs))
     return min_order
 
 
