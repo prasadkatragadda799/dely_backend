@@ -46,12 +46,11 @@ def _min_line_qty_for_tier(product: Product, tier: str) -> int:
     pcs = max(1, int(product.pieces_per_set or 1))
     unit = (getattr(product, "unit", None) or "piece").lower()
     # Natural-set: the sale unit is already a set (e.g. unit='set', piecesPerSet=6).
-    # min_order_quantity may have been entered as a piece count by the admin, so
-    # divide it back to get the minimum number of sale units (sets).
+    # minOrderQuantity is ambiguous for set units (pieces vs sets), so always
+    # accept 1 as the minimum — avoids surprising multi-set forced adds.
     is_natural_set = pcs > 1 and unit != "piece"
-    if tier == "set" or (tier == "unit" and is_natural_set):
-        if pcs > 1 and min_order >= 1:
-            return max(1, math.ceil(min_order / pcs))
+    if tier in ("set", "remaining") or (tier == "unit" and is_natural_set):
+        return 1
     return min_order
 
 
