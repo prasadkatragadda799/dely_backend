@@ -370,11 +370,15 @@ async def create_product(
                 detail="expiry_date must be in YYYY-MM-DD format"
             )
 
-    # Required fields (accept either casing variants)
+    # mrp / sellingPrice are now optional — pricing lives in variants.
+    # Track whether they were explicitly supplied so the post-variant sync
+    # can overwrite with the first variant's values when they were omitted.
+    mrp_explicit = mrp is not None
+    sellingPrice_explicit = sellingPrice is not None
     if mrp is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mrp is required")
+        mrp = Decimal("0")
     if sellingPrice is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sellingPrice/selling_price is required")
+        sellingPrice = Decimal("0")
     if commissionCost is None:
         commissionCost = Decimal("0")
     if not unit:
@@ -385,14 +389,15 @@ async def create_product(
     minOrderQuantity = int(minOrderQuantity) if minOrderQuantity is not None else 1
     piecesPerSet = _normalize_pieces_per_set(unit, piecesPerSet)
 
-    # Validate selling price <= mrp
-    if sellingPrice > mrp:
+    # Only validate when explicit prices were supplied
+    if sellingPrice > Decimal("0") and mrp > Decimal("0") and sellingPrice > mrp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Selling price cannot be greater than MRP"
         )
-    _validate_tier_selling_vs_mrp("Set price", set_sp, set_m, mrp)
-    _validate_tier_selling_vs_mrp("Remaining price", rem_sp, rem_m, mrp)
+    if mrp > Decimal("0"):
+        _validate_tier_selling_vs_mrp("Set price", set_sp, set_m, mrp)
+        _validate_tier_selling_vs_mrp("Remaining price", rem_sp, rem_m, mrp)
     if commissionCost < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -568,9 +573,9 @@ async def create_product(
             except Exception as e:
                 logger.error(f"Error creating product variant for product {product.id}: {str(e)}")
 
-        # Optionally sync main product price from first variant only when
-        # explicit product-level prices are not provided in the request.
-        if created_variants and mrp is None and sellingPrice is None:
+        # Sync main product price from first variant when no explicit prices
+        # were provided in the request (variant-first pricing flow).
+        if created_variants and not mrp_explicit and not sellingPrice_explicit:
             first = created_variants[0]
             try:
                 if first.mrp is not None:
