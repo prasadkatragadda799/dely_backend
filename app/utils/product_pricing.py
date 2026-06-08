@@ -98,10 +98,15 @@ def build_price_options_for_api(product: Any) -> List[dict]:
     """Payload for mobile: list of selectable tiers (unit always; set/remaining if configured)."""
     out: List[dict] = []
     labels = {"unit": "Unit", "set": "Set", "remaining": "Remaining"}
+    unit_sell = customer_price_with_commission(product, "unit")
     for tier in ("unit", "set", "remaining"):
         if not tier_is_configured(product, tier):
             continue
         sell = customer_price_with_commission(product, tier)
+        # Skip non-unit tiers whose price is identical to unit — it means the set price
+        # was not meaningfully configured, and showing two identical options confuses users.
+        if tier != "unit" and sell == unit_sell:
+            continue
         mrp = tier_mrp(product, tier)
         out.append(
             {
