@@ -159,6 +159,7 @@ async def list_products(
             "description": p.description,
             "hsnCode": hsn_code,
             "divisionId": str(p.division_id) if getattr(p, "division_id", None) else None,
+            "zoneId": str(p.zone_id) if getattr(p, "zone_id", None) else None,
             "mrp": p.mrp,
             "sellingPrice": p.selling_price,
             "commissionCost": p.commission_cost,
@@ -278,6 +279,8 @@ async def create_product(
     brandId: Optional[str] = Form(None),  # camelCase
     company_id: Optional[str] = Form(None),  # snake_case
     companyId: Optional[str] = Form(None),  # camelCase
+    zoneId: Optional[str] = Form(None),  # camelCase — product-level zone restriction
+    zone_id: Optional[str] = Form(None),  # snake_case
     mrp: Optional[Decimal] = Form(None),
     sellingPrice: Optional[Decimal] = Form(None),  # camelCase
     selling_price: Optional[Decimal] = Form(None),  # snake_case
@@ -334,6 +337,7 @@ async def create_product(
     division_id_param = divisionId or division_id
     brand_id = brand_id or brandId
     company_id = company_id or companyId
+    zone_id_param = zoneId or zone_id
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
     commissionCost = commissionCost if commissionCost is not None else commission_cost
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
@@ -469,6 +473,17 @@ async def create_product(
                 detail="Invalid division ID format"
             )
 
+    zone_id_str: Optional[str] = None
+    if zone_id_param:
+        try:
+            UUID(zone_id_param)
+            zone_id_str = zone_id_param
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid zone ID format"
+            )
+
     # Generate slug if not provided
     product_slug = slug or generate_slug(name)
     
@@ -497,6 +512,7 @@ async def create_product(
         company_id=company_id_str,
         category_id=category_id_str,
         division_id=division_id_str,
+        zone_id=zone_id_str,
         mrp=mrp,
         selling_price=sellingPrice,
         commission_cost=commissionCost,
@@ -646,6 +662,8 @@ async def update_product(
     brandId: Optional[str] = Form(None),
     company_id: Optional[str] = Form(None),
     companyId: Optional[str] = Form(None),
+    zoneId: Optional[str] = Form(None),  # camelCase — product-level zone restriction
+    zone_id: Optional[str] = Form(None),  # snake_case
     mrp: Optional[Decimal] = Form(None),
     sellingPrice: Optional[Decimal] = Form(None),
     selling_price: Optional[Decimal] = Form(None),
@@ -724,6 +742,7 @@ async def update_product(
     division_id_param = divisionId if divisionId is not None else division_id
     brand_id = brand_id if brand_id is not None else brandId
     company_id = company_id if company_id is not None else companyId
+    zone_id_param = zoneId if zoneId is not None else zone_id
     sellingPrice = sellingPrice if sellingPrice is not None else selling_price
     commissionCost = commissionCost if commissionCost is not None else commission_cost
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
@@ -847,6 +866,21 @@ async def update_product(
                 )
             product.division_id = division_id_param
             update_data["division_id"] = division_id_param
+
+    if zone_id_param is not None:
+        if zone_id_param == "":
+            product.zone_id = None
+            update_data["zone_id"] = None
+        else:
+            try:
+                UUID(zone_id_param)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid zone ID format",
+                )
+            product.zone_id = zone_id_param
+            update_data["zone_id"] = zone_id_param
 
     # Simple scalar fields
     if name is not None:

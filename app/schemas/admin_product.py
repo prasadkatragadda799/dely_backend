@@ -103,6 +103,7 @@ class AdminProductResponse(BaseModel):
     company: Optional[Dict[str, Any]] = None
     category: Optional[Dict[str, Any]] = None
     division_id: Optional[UUID] = None
+    zone_id: Optional[UUID] = None
     mrp: Decimal
     selling_price: Decimal
     commission_cost: Decimal = Field(default=Decimal("0"))

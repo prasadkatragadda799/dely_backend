@@ -139,26 +139,24 @@ def get_products(
     if pincode:
         pincode_clean = pincode.strip()
 
-        # ── Zone-based filtering ────────────────────────────────────────────
+        # ── Zone-based filtering (product-level) ────────────────────────────
         # Find the zone(s) the user's pincode belongs to.
         zone_rows = db.query(ZonePincode).filter(ZonePincode.pincode == pincode_clean).all()
         zone_ids = [zp.zone_id for zp in zone_rows]
 
         if zone_ids:
-            # Show products from:
-            #   a) companies in the user's zone, OR
-            #   b) companies with NO zone assigned (global/unrestricted sellers)
-            query = query.join(Company, Company.id == Product.company_id).filter(
+            # Show products where:
+            #   a) the product has a zone AND it matches the user's zone, OR
+            #   b) the product has NO zone assigned (available everywhere)
+            query = query.filter(
                 or_(
-                    Company.zone_id.in_(zone_ids),
-                    Company.zone_id.is_(None),
+                    Product.zone_id.in_(zone_ids),
+                    Product.zone_id.is_(None),
                 )
             )
         else:
-            # Pincode is not in any zone → show only products from global companies
-            query = query.join(Company, Company.id == Product.company_id).filter(
-                Company.zone_id.is_(None)
-            )
+            # Pincode is not in any zone → show only products with no zone restriction
+            query = query.filter(Product.zone_id.is_(None))
 
         # ── Product-level service area filtering (existing logic) ───────────
         has_any_restriction = (
@@ -239,8 +237,8 @@ def get_products(
             ).all()
         } if page_ids else set()
         for p in products:
-            comp_zone = p.company.zone_id if p.company else None
-            zone_ok = comp_zone is None or comp_zone in zone_ids
+            prod_zone = getattr(p, 'zone_id', None)
+            zone_ok = prod_zone is None or prod_zone in zone_ids
             sa_ok = (p.id not in restricted_ids) or (p.id in match_ids)
             deliverable_by_id[p.id] = bool(zone_ok and sa_ok)
 
