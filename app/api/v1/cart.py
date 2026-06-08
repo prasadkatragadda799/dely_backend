@@ -339,8 +339,8 @@ def add_to_cart(
 
     variant_id_str = str(variant.id) if variant is not None else None
 
-    stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
-    if stock < item_data.quantity:
+    stock_qty = product.stock_quantity
+    if stock_qty is not None and int(stock_qty) < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
 
     # min_order_quantity is stored in pieces; convert to the cart line's tier units
@@ -433,8 +433,8 @@ def update_cart_item(
         raise HTTPException(status_code=404, detail="Cart item not found")
     
     product = db.query(Product).filter(Product.id == str(cart_item.product_id)).first()
-    stock = product.stock_quantity if product.stock_quantity else (product.stock if hasattr(product, 'stock') and product.stock else 0)
-    if stock < item_data.quantity:
+    stock_qty = product.stock_quantity if product else None
+    if stock_qty is not None and int(stock_qty) < item_data.quantity:
         raise HTTPException(status_code=400, detail="Insufficient stock")
 
     # Convert min_order from pieces to the line's tier units.
