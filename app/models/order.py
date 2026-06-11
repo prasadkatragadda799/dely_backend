@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, Enum as SQLEnum, Text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 import uuid
 from datetime import datetime
 import enum
@@ -19,6 +20,30 @@ class OrderStatus(str, enum.Enum):
     CANCELED = "canceled"  # Alternative spelling
 
 
+class _OrderStatusType(TypeDecorator):
+    """String column that tolerates both enum values ('out_for_delivery') and
+    enum names ('OUT_FOR_DELIVERY') that may have been stored by older code."""
+
+    impl = String(50)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, OrderStatus):
+            return value.value
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        try:
+            return OrderStatus(value)          # normal path: 'out_for_delivery'
+        except ValueError:
+            try:
+                return OrderStatus[value]      # legacy path: 'OUT_FOR_DELIVERY'
+            except KeyError:
+                return value                   # unknown value — pass through as string
+
+
 class Order(Base):
     __tablename__ = "orders"
     
@@ -27,7 +52,7 @@ class Order(Base):
     division_id = Column(String(36), ForeignKey("divisions.id", ondelete="SET NULL"), nullable=True, index=True)  # Kitchen / Grocery etc.
     user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     delivery_person_id = Column(String(36), ForeignKey("delivery_persons.id", ondelete="SET NULL"), nullable=True, index=True)
-    status = Column(SQLEnum(OrderStatus, values_callable=lambda x: [e.value for e in x]), default=OrderStatus.PENDING, nullable=False)
+    status = Column(_OrderStatusType(), default=OrderStatus.PENDING, nullable=False)
     payment_method = Column(String(50), nullable=True)
     payment_status = Column(String(20), default="pending", nullable=False)  # 'pending', 'paid', 'failed', 'refunded'
     items = Column(JSON, nullable=True)  # Legacy: Store order items as JSON (deprecated, use order_items relationship)
