@@ -88,6 +88,15 @@ class AllSettings(BaseModel):
     notifications: Optional[NotificationSettings] = None
 
 
+# Bank / Invoice Settings
+class BankSettings(BaseModel):
+    bankName: Optional[str] = None
+    accountHolderName: Optional[str] = None
+    accountNumber: Optional[str] = None
+    ifscCode: Optional[str] = None
+    branchName: Optional[str] = None
+
+
 # Admin User Schemas
 class AdminUserCreate(BaseModel):
     name: str

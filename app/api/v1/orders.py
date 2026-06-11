@@ -188,11 +188,19 @@ def create_order(
         )
         db.add(order_item)
         
-        # Update product stock
+        # Update product stock — stock is stored in pieces.
+        # For 'set' tier: each ordered unit = pieces_per_set pieces.
+        # For variants / 'unit' / 'remaining': each ordered unit = 1 piece equivalent.
+        if variant is None:
+            _tier = normalize_price_tier(item.price_option_key)
+            _pps = max(1, int(getattr(product, 'pieces_per_set', 1) or 1))
+            pieces_to_deduct = item.quantity * (_pps if _tier == 'set' else 1)
+        else:
+            pieces_to_deduct = item.quantity
         if product.stock_quantity:
-            product.stock_quantity -= item.quantity
+            product.stock_quantity -= pieces_to_deduct
         elif hasattr(product, 'stock') and product.stock:
-            product.stock -= item.quantity
+            product.stock -= pieces_to_deduct
         order_items_data.append(order_item)
     
     db.commit()

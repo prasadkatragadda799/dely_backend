@@ -226,10 +226,21 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         )
         quantity = Decimal(str(item.quantity))
 
+        # MRP / selling_price is GST-inclusive. Extract base (excl. GST) and tax.
+        # base = price / (1 + rate/100), tax = price - base
+        tax_rate = calculate_tax_rate(hsn_code)
+        divisor = Decimal("1") + Decimal(str(tax_rate)) / Decimal("100")
+        base_price = selling_price / divisor          # per-unit excl. GST
+        tax_per_unit = selling_price - base_price     # per-unit GST portion
+        mrp_base = mrp / divisor                      # MRP excl. GST (for display)
+
+        taxable_amount = base_price * quantity        # total excl. GST
+        item_tax_total = tax_per_unit * quantity      # total GST on this line
+        item_total = selling_price * quantity         # = taxable_amount + item_tax_total
+
         unit_discount = mrp - selling_price if mrp > selling_price else Decimal("0")
         discount = unit_discount * quantity
-        taxable_amount = selling_price * quantity
-        tax_rate = calculate_tax_rate(hsn_code)
+
         taxes = calculate_item_taxes(
             taxable_amount, tax_rate, supply_type, seller["state"], buyer_state
         )
@@ -240,18 +251,14 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         total_igst += taxes["igst"]
 
         if supply_type == "INTRASTATE":
-            if taxes["sgst"] > 0:
-                key = ("SGST", tax_rate)
-                if key not in tax_details_dict:
-                    tax_details_dict[key] = {"taxable_amount": Decimal("0"), "tax_amount": Decimal("0")}
-                tax_details_dict[key]["taxable_amount"] += taxable_amount
-                tax_details_dict[key]["tax_amount"] += taxes["sgst"]
-            if taxes["cgst"] > 0:
-                key = ("CGST", tax_rate)
-                if key not in tax_details_dict:
-                    tax_details_dict[key] = {"taxable_amount": Decimal("0"), "tax_amount": Decimal("0")}
-                tax_details_dict[key]["taxable_amount"] += taxable_amount
-                tax_details_dict[key]["tax_amount"] += taxes["cgst"]
+            for tax_type in ("SGST", "CGST"):
+                t_amt = taxes["sgst"] if tax_type == "SGST" else taxes["cgst"]
+                if t_amt > 0:
+                    key = (tax_type, tax_rate)
+                    if key not in tax_details_dict:
+                        tax_details_dict[key] = {"taxable_amount": Decimal("0"), "tax_amount": Decimal("0")}
+                    tax_details_dict[key]["taxable_amount"] += taxable_amount
+                    tax_details_dict[key]["tax_amount"] += t_amt
         else:
             if taxes["igst"] > 0:
                 key = ("IGST", tax_rate)
@@ -260,7 +267,6 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
                 tax_details_dict[key]["taxable_amount"] += taxable_amount
                 tax_details_dict[key]["tax_amount"] += taxes["igst"]
 
-        item_total = taxable_amount + taxes["sgst"] + taxes["cgst"] + taxes["igst"]
         invoice_item = {
             "id": str(item.id),
             "product": {
@@ -270,15 +276,22 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
                 "variant": variant_name or (product.unit if product else "EACH (Set of 1)"),
             },
             "quantity": float(quantity),
+            # MRP columns (tax-inclusive, as printed on pack)
             "original_rate": float(mrp),
             "original_price": float(mrp),
             "mrp": float(mrp),
+            "mrp_excl_tax": float(mrp_base),
+            # Discount
             "unit_discount": float(unit_discount),
             "discount": float(discount),
-            "rate": float(selling_price),
+            # Rate excl. GST (taxable base per unit)
+            "rate_excl_tax": float(base_price),
+            "rate": float(selling_price),           # kept for legacy compatibility
             "selling_price": float(selling_price),
             "price": float(selling_price),
+            # Taxable base (excl. GST) for the whole line
             "taxable_amount": float(taxable_amount),
+            # GST components
             "sgst": float(taxes["sgst"]),
             "cgst": float(taxes["cgst"]),
             "tax_details": {
@@ -286,7 +299,9 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
                 "cgst": float(taxes["cgst"]),
                 "igst": float(taxes["igst"]),
                 "rate": tax_rate,
+                "total_tax": float(item_tax_total),
             },
+            # Total = MRP × qty (tax already included, NOT added again)
             "total_amount": float(item_total),
         }
         invoice_items.append(invoice_item)
@@ -324,6 +339,22 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
     invoice_number = generate_invoice_number(str(order.id), order.order_number)
     invoice_date = order.created_at if order.created_at else datetime.utcnow()
     invoice_time = invoice_date.strftime("%I:%M %p") if invoice_date else "11:00 AM"
+
+    # Bank details for the invoice footer (editable from admin settings).
+    bank_details = None
+    try:
+        from app.api.v1.admin_settings import get_setting as _get_setting
+        bd = _get_setting(db, "bank") or {}
+        if any(bd.get(k) for k in ("bankName", "accountNumber", "ifscCode")):
+            bank_details = {
+                "bankName": bd.get("bankName", ""),
+                "accountHolderName": bd.get("accountHolderName", ""),
+                "accountNumber": bd.get("accountNumber", ""),
+                "ifscCode": bd.get("ifscCode", ""),
+                "branchName": bd.get("branchName", ""),
+            }
+    except Exception:
+        pass
 
     # Dynamic UPI QR: pay the exact invoice total to the business UPI ID, with the
     # invoice number as the transaction note/reference. No payment gateway needed.
@@ -378,6 +409,7 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         "total": float(rounded_total),
         "grand_total": float(rounded_total),
         "upiQr": upi_qr,
+        "bankDetails": bank_details,
         "paid_amount": float(rounded_total) if getattr(order, "payment_status", None) == "paid" else float(0),
         "balance": float(0) if getattr(order, "payment_status", None) == "paid" else float(rounded_total),
         "savings": float(savings),

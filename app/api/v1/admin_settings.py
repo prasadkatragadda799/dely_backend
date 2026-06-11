@@ -10,7 +10,7 @@ from app.schemas.common import ResponseModel
 from app.schemas.settings import (
     GeneralSettings, PaymentSettings, DeliverySettings,
     TaxSettings, NotificationSettings, AllSettings,
-    ServiceLocationSettings
+    ServiceLocationSettings, BankSettings
 )
 from app.models.settings import Settings
 from app.models.admin import Admin, AdminRole
@@ -603,3 +603,39 @@ async def get_all_settings(
         },
         message="Settings retrieved successfully"
     )
+
+
+# ===== Bank / Invoice Settings =====
+
+@router.get("/bank", response_model=ResponseModel)
+async def get_bank_settings(
+    admin: Admin = Depends(get_current_active_admin),
+    db: Session = Depends(get_db)
+):
+    """Get bank details used on invoices."""
+    data = get_setting(db, "bank") or {}
+    return ResponseModel(success=True, data=data, message="Bank settings retrieved")
+
+
+@router.put("/bank", response_model=ResponseModel)
+async def update_bank_settings(
+    settings_data: BankSettings,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Update bank details shown on invoices."""
+    current = get_setting(db, "bank") or {}
+    if settings_data.bankName is not None:
+        current["bankName"] = settings_data.bankName.strip()
+    if settings_data.accountHolderName is not None:
+        current["accountHolderName"] = settings_data.accountHolderName.strip()
+    if settings_data.accountNumber is not None:
+        current["accountNumber"] = settings_data.accountNumber.strip()
+    if settings_data.ifscCode is not None:
+        current["ifscCode"] = settings_data.ifscCode.strip().upper()
+    if settings_data.branchName is not None:
+        current["branchName"] = settings_data.branchName.strip()
+    update_setting(db, "bank", current)
+    log_admin_activity(db, admin.id, "settings_updated", "settings", details={"section": "bank"}, request=request)
+    return ResponseModel(success=True, data=current, message="Bank settings updated")
