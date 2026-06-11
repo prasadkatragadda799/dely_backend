@@ -87,6 +87,7 @@ class AdminProductVariantResponse(BaseModel):
     mrp: Optional[Decimal] = None
     specialPrice: Optional[Decimal] = None
     freeItem: Optional[str] = None
+    minOrderQuantity: int = 1
     images: List[ProductImageResponse] = Field(default_factory=list)
 
     class Config:
@@ -208,6 +209,7 @@ class AdminProductResponse(BaseModel):
                             mrp=getattr(v, "mrp", None),
                             specialPrice=getattr(v, "special_price", None),
                             freeItem=getattr(v, "free_item", None),
+                            minOrderQuantity=getattr(v, "min_order_quantity", 1) or 1,
                             images=v_images,
                         )
                     )

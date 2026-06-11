@@ -198,6 +198,7 @@ async def list_products(
                     "mrp": v.mrp,
                     "specialPrice": getattr(v, "special_price", None),
                     "freeItem": getattr(v, "free_item", None),
+                    "minOrderQuantity": getattr(v, "min_order_quantity", 1) or 1,
                     "images": [
                         ProductImageResponse.model_validate(img)
                         for img in (getattr(v, "images", None) or [])
@@ -555,6 +556,7 @@ async def create_product(
                 _vh = v.get("hsnCode") if v.get("hsnCode") is not None else v.get("hsn_code")
                 _vh = str(_vh).strip() if _vh is not None else ""
                 variant_hsn = _vh if _vh else hsn_code_final
+                _moq = v.get("minOrderQuantity") or v.get("min_order_quantity")
                 variant = ProductVariant(
                     product_id=product.id,
                     hsn_code=variant_hsn,
@@ -566,6 +568,7 @@ async def create_product(
                     mrp=v.get("mrp"),
                     special_price=v.get("specialPrice") or v.get("special_price"),
                     free_item=v.get("freeItem") or v.get("free_item"),
+                    min_order_quantity=int(_moq) if _moq and int(_moq) >= 1 else 1,
                     sort_order=idx,
                 )
                 db.add(variant)
@@ -1035,6 +1038,8 @@ async def update_product(
                 _vid = v.get("id") or v.get("variantId")
                 _vid = str(_vid).strip() if _vid else None
                 target = existing_by_id.get(_vid) if _vid else None
+                _moq = v.get("minOrderQuantity") or v.get("min_order_quantity")
+                _moq_int = int(_moq) if _moq and int(_moq) >= 1 else 1
                 if target is not None:
                     target.hsn_code = variant_hsn
                     target.packaging_label_type = normalize_packaging_label_type(
@@ -1045,6 +1050,7 @@ async def update_product(
                     target.mrp = v.get("mrp")
                     target.special_price = v.get("specialPrice") or v.get("special_price")
                     target.free_item = v.get("freeItem") or v.get("free_item")
+                    target.min_order_quantity = _moq_int
                     target.sort_order = idx
                     submitted_ids.add(str(target.id))
                     created_variants.append(target)
@@ -1060,6 +1066,7 @@ async def update_product(
                         mrp=v.get("mrp"),
                         special_price=v.get("specialPrice") or v.get("special_price"),
                         free_item=v.get("freeItem") or v.get("free_item"),
+                        min_order_quantity=_moq_int,
                         sort_order=idx,
                     )
                     db.add(variant)

@@ -18,6 +18,7 @@ class ProductVariant(Base):
     mrp = Column(Numeric(10, 2), nullable=True)
     special_price = Column(Numeric(10, 2), nullable=True)
     free_item = Column(String(255), nullable=True)
+    min_order_quantity = Column(Integer, default=1, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)  # Display/selection order (matches admin form order)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
