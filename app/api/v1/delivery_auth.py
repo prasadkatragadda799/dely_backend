@@ -253,6 +253,39 @@ async def update_delivery_person_info(
     )
 
 
+@router.post("/change-password", response_model=ResponseModel)
+async def delivery_change_password(
+    payload: dict,
+    delivery_person: DeliveryPerson = Depends(get_current_delivery_person),
+    db: Session = Depends(get_db),
+):
+    """Allow delivery person to change their own password."""
+    current_password = (payload.get("current_password") or "").strip()
+    new_password = (payload.get("new_password") or "").strip()
+
+    if not current_password or not new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="current_password and new_password are required",
+        )
+    if len(new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters",
+        )
+    if not verify_password(current_password, delivery_person.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    from app.utils.security import get_password_hash
+    delivery_person.password_hash = get_password_hash(new_password)
+    db.commit()
+
+    return ResponseModel(success=True, message="Password changed successfully")
+
+
 @router.post("/fcm-token", response_model=ResponseModel)
 async def update_delivery_fcm_token(
     payload: dict,

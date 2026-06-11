@@ -350,6 +350,46 @@ async def assign_order_to_delivery(
     )
 
 
+@router.post("/persons/{person_id}/reset-password", response_model=ResponseModel)
+async def reset_delivery_person_password(
+    person_id: str,
+    payload: dict,
+    request: Request,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db),
+):
+    """Admin resets a delivery person's password (e.g. forgot password)."""
+    person = db.query(DeliveryPerson).filter(DeliveryPerson.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Delivery person not found")
+
+    new_password = (payload.get("new_password") or "").strip() if isinstance(payload, dict) else ""
+    if not new_password:
+        new_password = secrets.token_urlsafe(8)
+
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    person.password_hash = get_password_hash(new_password)
+    db.commit()
+
+    log_admin_activity(
+        db=db,
+        admin_id=admin.id,
+        action="delivery_person_password_reset",
+        entity_type="delivery_person",
+        entity_id=None,
+        details={"delivery_person_id": person_id, "name": person.name},
+        request=request,
+    )
+
+    return ResponseModel(
+        success=True,
+        data={"plainPassword": new_password},
+        message="Password reset successfully",
+    )
+
+
 @router.get("/persons/{person_id}/orders", response_model=ResponseModel)
 async def get_delivery_person_orders(
     person_id: str,
