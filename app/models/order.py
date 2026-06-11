@@ -41,7 +41,13 @@ class _OrderStatusType(TypeDecorator):
             try:
                 return OrderStatus[value]      # legacy path: 'OUT_FOR_DELIVERY'
             except KeyError:
-                return value                   # unknown value — pass through as string
+                # Completely unknown value — return a str subclass with .value so
+                # code that does `o.status.value` doesn't AttributeError.
+                class _UnknownStatus(str):
+                    @property
+                    def value(self):
+                        return str(self)
+                return _UnknownStatus(value)
 
 
 class Order(Base):
