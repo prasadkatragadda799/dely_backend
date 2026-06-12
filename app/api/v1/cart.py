@@ -448,14 +448,14 @@ def update_cart_item(
     line_tier = (cart_item.price_option_key or "unit").strip().lower()
     min_line_qty = _min_line_qty_for_tier(product, line_tier)
     if item_data.quantity < min_line_qty:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Minimum order quantity is {min_line_qty}"
-        )
+        # Client tried to set quantity below the minimum — treat as intent to remove.
+        db.delete(cart_item)
+        db.commit()
+        return ResponseModel(success=True, message="Item removed from cart")
 
     cart_item.quantity = item_data.quantity
     db.commit()
-    
+
     return ResponseModel(success=True, message="Cart item updated")
 
 
