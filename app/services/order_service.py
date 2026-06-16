@@ -95,13 +95,14 @@ def calculate_order_totals(items: list, db: Session) -> dict:
     # Calculate delivery charge
     delivery_charge = Decimal('0.00') if subtotal >= 1000 else Decimal('50.00')
     
-    # `subtotal` is already the payable (selling-price) subtotal; `discount` is the
-    # MRP→selling saving and is informational only. Earlier code subtracted `discount`
-    # again here, double-applying it and under-charging every order. GST applies to the
-    # payable subtotal.
-    tax = subtotal * Decimal('0.18')
+    # Selling prices are GST-inclusive (tax is already embedded in the price the
+    # customer sees). Extract the GST portion for invoice reporting — do NOT add
+    # it again on top, which would inflate the total by 18% incorrectly.
+    # tax = subtotal × rate / (1 + rate)  →  the share of tax already inside subtotal
+    tax = subtotal * Decimal('0.18') / Decimal('1.18')
 
-    total = subtotal + delivery_charge + tax
+    # Total payable = selling-price sum + delivery. Tax is already inside subtotal.
+    total = subtotal + delivery_charge
     
     return {
         "subtotal": subtotal,

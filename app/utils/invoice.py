@@ -9,6 +9,25 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 
 
+_GST_STATE_CODES: Dict[str, str] = {
+    "jammu and kashmir": "01", "himachal pradesh": "02", "punjab": "03",
+    "chandigarh": "04", "uttarakhand": "05", "haryana": "06", "delhi": "07",
+    "rajasthan": "08", "uttar pradesh": "09", "bihar": "10", "sikkim": "11",
+    "arunachal pradesh": "12", "nagaland": "13", "manipur": "14", "mizoram": "15",
+    "tripura": "16", "meghalaya": "17", "assam": "18", "west bengal": "19",
+    "jharkhand": "20", "odisha": "21", "chhattisgarh": "22", "madhya pradesh": "23",
+    "gujarat": "24", "daman and diu": "25", "dadra and nagar haveli": "26",
+    "maharashtra": "27", "andhra pradesh": "28", "karnataka": "29", "goa": "30",
+    "lakshadweep": "31", "kerala": "32", "tamil nadu": "33", "puducherry": "34",
+    "andaman and nicobar islands": "35", "telangana": "36", "andhra pradesh (new)": "37",
+}
+
+
+def get_state_code(state_name: str) -> str:
+    """Return the 2-digit GST state code for a given state name."""
+    return _GST_STATE_CODES.get((state_name or "").strip().lower(), "")
+
+
 def get_seller_info() -> Dict[str, Any]:
     """
     Get seller/company information for invoices.
@@ -156,6 +175,10 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
     from app.models.product import Product
 
     seller = get_seller_info()
+    seller_state_code = get_state_code(seller.get("state", ""))
+    seller["state_code"] = seller_state_code
+    seller["state_with_code"] = f"{seller_state_code} - {seller.get('state', '')}" if seller_state_code else seller.get("state", "")
+
     delivery_address = order.delivery_address if isinstance(order.delivery_address, dict) else {}
     buyer_name = delivery_address.get("name") or (user.name if user else "")
     buyer_address_line1 = delivery_address.get("address_line1") or delivery_address.get("address") or ""
@@ -165,6 +188,8 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
     buyer_pincode = delivery_address.get("pincode") or ""
     buyer_gstin = delivery_address.get("gstin") or (user.gst_number if user else "") or ""
     buyer_phone = delivery_address.get("phone") or (user.phone if user else "") or ""
+    buyer_email = delivery_address.get("email") or (user.email if user and getattr(user, "email", None) else "") or ""
+    buyer_state_code = get_state_code(buyer_state)
 
     buyer = {
         "name": buyer_name,
@@ -172,13 +197,18 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
         "address_line2": buyer_address_line2,
         "city": buyer_city,
         "state": buyer_state,
+        "state_code": buyer_state_code,
+        "state_with_code": f"{buyer_state_code} - {buyer_state}" if buyer_state_code else buyer_state,
         "pincode": buyer_pincode,
         "gstin": buyer_gstin,
         "phone": buyer_phone,
+        "email": buyer_email,
     }
 
     supply_type = determine_supply_type(seller["state"], buyer_state)
-    place_of_supply = buyer_state.upper() if buyer_state else seller["state"].upper()
+    _pos_state = buyer_state if buyer_state else seller["state"]
+    _pos_code = get_state_code(_pos_state)
+    place_of_supply = f"{_pos_code} - {_pos_state.upper()}" if _pos_code else _pos_state.upper()
 
     order_items = db.query(OrderItem).filter(OrderItem.order_id == str(order.id)).all()
     invoice_items = []
