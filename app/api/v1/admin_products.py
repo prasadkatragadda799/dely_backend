@@ -1123,13 +1123,15 @@ async def update_product(
             .all()
         )
         has_new_uploads = any(getattr(f, "filename", None) for f in (image_files or []))
+        logger.info(f"[keepImageIds] keep_set={keep_set}, existing_image_ids={[im.id for im in existing_images]}, has_new_uploads={has_new_uploads}")
         # Safety net: an empty keep-list with no replacement uploads is the signature of an
         # edit form that failed to load the existing gallery (the classic "edit details →
         # images vanish" bug), NOT an intentional "remove everything". Skip deletion then.
         if existing_images and (keep_set or has_new_uploads):
-            for im in existing_images:
-                if im.id not in keep_set:
-                    db.delete(im)
+            to_delete = [im for im in existing_images if im.id not in keep_set]
+            logger.info(f"[keepImageIds] deleting {len(to_delete)} images: {[im.id for im in to_delete]}")
+            for im in to_delete:
+                db.delete(im)
             db.commit()
             db.refresh(product)
 
@@ -1201,6 +1203,46 @@ async def update_product(
         data=AdminProductResponse.model_validate(product),
         message="Product updated successfully",
     )
+
+
+@router.get("/{product_id}/debug-images")
+async def debug_product_images(
+    product_id: UUID,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """TEMPORARY debug endpoint - returns raw DB values for product images."""
+    from sqlalchemy import text
+    pid_str = str(product_id).strip()
+    pid_no_dashes = pid_str.replace("-", "")
+    # Raw product row
+    prod_row = db.execute(
+        text("SELECT id, name FROM products WHERE id IN (:a, :b) LIMIT 1"),
+        {"a": pid_str, "b": pid_no_dashes}
+    ).fetchone()
+    if not prod_row:
+        return {"error": "product not found"}
+    raw_product_id = prod_row[0]
+    # Raw image rows
+    img_rows = db.execute(
+        text("SELECT id, product_id, image_url FROM product_images WHERE product_id = :pid"),
+        {"pid": raw_product_id}
+    ).fetchall()
+    return {
+        "product_id_from_path": pid_str,
+        "product_id_in_db": raw_product_id,
+        "product_id_repr": repr(raw_product_id),
+        "images": [
+            {
+                "id": r[0],
+                "id_repr": repr(r[0]),
+                "product_id": r[1],
+                "product_id_repr": repr(r[1]),
+                "image_url": r[2],
+            }
+            for r in img_rows
+        ],
+    }
 
 
 @router.delete("/{product_id}", response_model=ResponseModel)
