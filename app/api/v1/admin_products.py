@@ -634,7 +634,7 @@ async def create_product(
             joinedload(Product.category),
             joinedload(Product.product_images)
         )\
-        .filter(Product.id == product.id)\
+        .filter(Product.id == str(product.id))\
         .first()
     
     # Log activity
@@ -1119,7 +1119,7 @@ async def update_product(
         keep_set = {str(x) for x in keep_list}
         existing_images = (
             db.query(ProductImage)
-            .filter(ProductImage.product_id == product.id)
+            .filter(ProductImage.product_id == str(product.id))
             .all()
         )
         has_new_uploads = any(getattr(f, "filename", None) for f in (image_files or []))
@@ -1138,7 +1138,7 @@ async def update_product(
         uploaded_images = []
         max_display_order = (
             db.query(func.max(ProductImage.display_order))
-            .filter(ProductImage.product_id == product.id)
+            .filter(ProductImage.product_id == str(product.id))
             .scalar()
             or 0
         )
@@ -1181,7 +1181,7 @@ async def update_product(
             joinedload(Product.company),
             joinedload(Product.category),
         )
-        .filter(Product.id == product.id)
+        .filter(Product.id == str(product.id))
         .first()
     )
 
