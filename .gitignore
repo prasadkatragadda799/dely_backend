@@ -22,9 +22,11 @@ wheels/
 
 # Virtual Environment
 venv/
+venv*/
 ENV/
 env/
 .venv
+.venv*/
 
 # Database
 *.db
