@@ -14,8 +14,29 @@ from app.utils.product_pricing import (
 from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
+from typing import Optional
+import re
 import random
 import string
+
+
+def variant_pieces_per_unit(variant) -> int:
+    """Return how many stock-pieces one ordered unit of this variant consumes.
+
+    set_pcs is a free-form admin string like '1*6', '1*12', '6', '12'.
+    We extract all digit groups and multiply them (1×6=6, 1×12=12).
+    Falls back to 1 so a missing/unknown format is safe.
+    """
+    raw = getattr(variant, 'set_pcs', None)
+    if not raw:
+        return 1
+    nums = [int(n) for n in re.findall(r'\d+', str(raw))]
+    if not nums:
+        return 1
+    result = 1
+    for n in nums:
+        result *= n
+    return max(1, result)
 
 
 def generate_order_number() -> str:
@@ -74,7 +95,14 @@ def calculate_order_totals(items: list, db: Session) -> dict:
             selling_price = customer_price_with_commission(product, tier)
             mrp = tier_mrp(product, tier)
 
-        if stock_available < qty:
+        if variant is not None:
+            pieces_needed = qty * variant_pieces_per_unit(variant)
+        else:
+            _tier = normalize_price_tier(item.get("price_option_key"))
+            _pps = max(1, int(getattr(product, 'pieces_per_set', 1) or 1))
+            pieces_needed = qty * (_pps if _tier == 'set' else 1)
+
+        if stock_available < pieces_needed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Insufficient stock for product {product.name}"

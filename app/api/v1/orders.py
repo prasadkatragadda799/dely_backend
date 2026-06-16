@@ -190,13 +190,14 @@ def create_order(
         
         # Update product stock — stock is stored in pieces.
         # For 'set' tier: each ordered unit = pieces_per_set pieces.
-        # For variants / 'unit' / 'remaining': each ordered unit = 1 piece equivalent.
+        # For variants: each ordered unit = set_pcs pieces (e.g. "1*6" → 6).
         if variant is None:
             _tier = normalize_price_tier(item.price_option_key)
             _pps = max(1, int(getattr(product, 'pieces_per_set', 1) or 1))
             pieces_to_deduct = item.quantity * (_pps if _tier == 'set' else 1)
         else:
-            pieces_to_deduct = item.quantity
+            from app.services.order_service import variant_pieces_per_unit
+            pieces_to_deduct = item.quantity * variant_pieces_per_unit(variant)
         if product.stock_quantity:
             product.stock_quantity -= pieces_to_deduct
         elif hasattr(product, 'stock') and product.stock:
@@ -368,15 +369,23 @@ async def cancel_order(
             detail="This order can no longer be cancelled. Contact support if you need help.",
         )
 
-    # Restore stock
+    # Restore stock (mirror the deduction logic from create_order)
+    from app.services.order_service import variant_pieces_per_unit
     order_items = db.query(OrderItem).filter(OrderItem.order_id == str(order.id)).all()
     for item in order_items:
         product = db.query(Product).filter(Product.id == str(item.product_id)).first()
         if product:
-            if product.stock_quantity:
-                product.stock_quantity += item.quantity
-            elif hasattr(product, "stock") and product.stock:
-                product.stock += item.quantity
+            if item.variant_id:
+                variant_obj = db.query(ProductVariant).filter(
+                    ProductVariant.id == str(item.variant_id)
+                ).first()
+                pieces_to_restore = item.quantity * (variant_pieces_per_unit(variant_obj) if variant_obj else 1)
+            else:
+                pieces_to_restore = item.quantity
+            if product.stock_quantity is not None:
+                product.stock_quantity += pieces_to_restore
+            elif hasattr(product, "stock") and product.stock is not None:
+                product.stock += pieces_to_restore
 
     order.status = OrderStatus.CANCELLED
     order.cancelled_at = datetime.utcnow()
