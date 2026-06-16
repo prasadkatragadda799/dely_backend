@@ -492,7 +492,7 @@ async def initiate_return(
     bank_ifsc_code: Optional[str] = Form(default=None),
     bank_account_holder: Optional[str] = Form(default=None),
     bank_name: Optional[str] = Form(default=None),
-    files: Optional[List[UploadFile]] = File(default=None),
+    files: List[UploadFile] = File(default=[]),
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
