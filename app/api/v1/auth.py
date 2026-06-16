@@ -347,6 +347,10 @@ def logout(current_user: User = Depends(get_current_user)):
 
 class SendOtpRequest(BaseModel):
     phone: str
+    # "login"  → verify user exists and is active before sending OTP
+    # "register" → verify user does NOT already have an active account
+    # If omitted, defaults to "login" behaviour.
+    purpose: Optional[str] = "login"
 
 
 class SendOtpResponse(BaseModel):
@@ -366,6 +370,31 @@ def send_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
     normalized = _normalize_phone_digits(phone)
     if len(normalized) < 10:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
+
+    purpose = (payload.purpose or "login").lower()
+
+    # --- Pre-OTP DB check ---
+    existing_user = (
+        db.query(User)
+        .filter(User.phone.in_([phone, normalized]))
+        .first()
+    )
+
+    if purpose == "login":
+        # User must exist and be active to receive a login OTP.
+        if not existing_user or not existing_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this phone number. Please register first.",
+            )
+    elif purpose == "register":
+        # Block sending OTP if the phone is already fully registered.
+        if existing_user and existing_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This phone number is already registered. Please log in instead.",
+            )
+
     _check_rate_limit(_otp_send_rate, f"send:{normalized}", OTP_SEND_LIMIT, OTP_SEND_WINDOW_SEC)
 
     if not settings.TWO_FACTOR_API_KEY:

@@ -16,7 +16,7 @@ def register_user(db: Session, user_data: UserCreate) -> User:
         if existing_phone_user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Phone number already registered"
+                detail="This phone number is already registered. Please log in instead."
             )
         # Unverified account — delete it so the user can re-register
         db.delete(existing_phone_user)
