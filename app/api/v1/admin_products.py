@@ -1123,13 +1123,11 @@ async def update_product(
             .all()
         )
         has_new_uploads = any(getattr(f, "filename", None) for f in (image_files or []))
-        logger.info(f"[keepImageIds] keep_set={keep_set}, existing_image_ids={[im.id for im in existing_images]}, has_new_uploads={has_new_uploads}")
         # Safety net: an empty keep-list with no replacement uploads is the signature of an
         # edit form that failed to load the existing gallery (the classic "edit details →
         # images vanish" bug), NOT an intentional "remove everything". Skip deletion then.
         if existing_images and (keep_set or has_new_uploads):
             to_delete = [im for im in existing_images if str(im.id) not in keep_set]
-            logger.info(f"[keepImageIds] deleting {len(to_delete)} images: {[im.id for im in to_delete]}")
             for im in to_delete:
                 db.delete(im)
             db.commit()
