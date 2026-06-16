@@ -2,7 +2,7 @@
 Admin Product Management Endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import or_, and_, func
 from typing import Any, Optional, List, Union
 from uuid import UUID
@@ -1168,6 +1168,22 @@ async def update_product(
 
         db.commit()
         db.refresh(product)
+
+    # Reload the product with all relationships before building the response.
+    # After multiple db.commit() calls above the in-memory object is expired and
+    # lazy-loading relationships can return stale/empty data.
+    product = (
+        db.query(Product)
+        .options(
+            joinedload(Product.product_images),
+            joinedload(Product.variants).selectinload(ProductVariant.images),
+            joinedload(Product.brand_rel),
+            joinedload(Product.company),
+            joinedload(Product.category),
+        )
+        .filter(Product.id == product.id)
+        .first()
+    )
 
     # Log activity
     log_admin_activity(
