@@ -38,109 +38,115 @@ async def get_dashboard_metrics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
+    divisionId: Optional[str] = Query(None, alias="divisionId"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """
     Get dashboard metrics with period-over-period comparison.
-    
+
     Query Parameters:
     - period: week | month | quarter | year | all (default: month)
-    - dateFrom: ISO date string (YYYY-MM-DD) - optional
-    - dateTo: ISO date string (YYYY-MM-DD) - optional
+    - dateFrom / dateTo: ISO date (YYYY-MM-DD) — optional custom range
+    - divisionId: UUID — filter revenue & orders to one division (via product→division join)
     """
     try:
-        # Get date ranges
         start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
         prev_start_dt, prev_end_dt = get_previous_period_date_range(start_dt, end_dt)
-        
-        # Total Revenue (current period)
-        total_revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-            and_(
+
+        if divisionId:
+            # Revenue via OrderItem→Product join so we can filter by division
+            def _rev(s, e):
+                return db.query(func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0)
+                ).join(Product, OrderItem.product_id == Product.id
+                ).join(Order, OrderItem.order_id == Order.id
+                ).filter(and_(
+                    Product.division_id == divisionId,
+                    Order.created_at >= s,
+                    Order.created_at <= e,
+                    Order.status != OrderStatus.CANCELLED,
+                )).scalar() or 0.0
+
+            def _ord(s, e):
+                return db.query(func.count(distinct(Order.id))
+                ).join(OrderItem, Order.id == OrderItem.order_id
+                ).join(Product, OrderItem.product_id == Product.id
+                ).filter(and_(
+                    Product.division_id == divisionId,
+                    Order.created_at >= s,
+                    Order.created_at <= e,
+                )).scalar() or 0
+
+            total_revenue = _rev(start_dt, end_dt)
+            prev_revenue = _rev(prev_start_dt, prev_end_dt)
+            total_orders = _ord(start_dt, end_dt)
+            prev_orders = _ord(prev_start_dt, prev_end_dt)
+            total_products = db.query(func.count(Product.id)).filter(Product.division_id == divisionId).scalar() or 0
+        else:
+            total_revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(and_(
                 Order.created_at >= start_dt,
                 Order.created_at <= end_dt,
-                Order.status != OrderStatus.CANCELLED
-            )
-        ).scalar() or 0.0
-        
-        # Previous period revenue
-        prev_revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-            and_(
+                Order.status != OrderStatus.CANCELLED,
+            )).scalar() or 0.0
+
+            prev_revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(and_(
                 Order.created_at >= prev_start_dt,
                 Order.created_at <= prev_end_dt,
-                Order.status != OrderStatus.CANCELLED
-            )
-        ).scalar() or 0.0
-        
-        revenue_change = calculate_percentage_change(float(total_revenue), float(prev_revenue))
-        
-        # Total Orders (current period)
-        total_orders = db.query(func.count(Order.id)).filter(
-            and_(
+                Order.status != OrderStatus.CANCELLED,
+            )).scalar() or 0.0
+
+            total_orders = db.query(func.count(Order.id)).filter(and_(
                 Order.created_at >= start_dt,
-                Order.created_at <= end_dt
-            )
-        ).scalar() or 0
-        
-        # Previous period orders
-        prev_orders = db.query(func.count(Order.id)).filter(
-            and_(
+                Order.created_at <= end_dt,
+            )).scalar() or 0
+
+            prev_orders = db.query(func.count(Order.id)).filter(and_(
                 Order.created_at >= prev_start_dt,
-                Order.created_at <= prev_end_dt
-            )
-        ).scalar() or 0
-        
+                Order.created_at <= prev_end_dt,
+            )).scalar() or 0
+
+            total_products = db.query(func.count(Product.id)).scalar() or 0
+
+        revenue_change = calculate_percentage_change(float(total_revenue), float(prev_revenue))
         orders_change = calculate_percentage_change(float(total_orders), float(prev_orders))
-        
-        # Active Users (users with activity in last 7 days)
+
+        # Active users and KYC are not division-scoped
         active_threshold = get_active_users_threshold()
-        active_users = db.query(func.count(User.id)).filter(
-            and_(
-                User.last_active_at >= active_threshold,
-                User.is_active == True
-            )
-        ).scalar() or 0
-        
-        # Previous period active users (7 days before that)
+        active_users = db.query(func.count(User.id)).filter(and_(
+            User.last_active_at >= active_threshold,
+            User.is_active == True,
+        )).scalar() or 0
+
         prev_active_threshold = active_threshold - timedelta(days=7)
-        prev_active_users = db.query(func.count(User.id)).filter(
-            and_(
-                User.last_active_at >= prev_active_threshold,
-                User.last_active_at < active_threshold,
-                User.is_active == True
-            )
-        ).scalar() or 0
-        
+        prev_active_users = db.query(func.count(User.id)).filter(and_(
+            User.last_active_at >= prev_active_threshold,
+            User.last_active_at < active_threshold,
+            User.is_active == True,
+        )).scalar() or 0
+
         users_change = calculate_percentage_change(float(active_users), float(prev_active_users))
-        
-        # Total products (for hub: totalProducts / products)
-        total_products = db.query(func.count(Product.id)).scalar() or 0
-        # KYC pending count (for hub: kycPending / pendingKyc)
         kyc_pending = db.query(func.count(User.id)).filter(User.kyc_status == KYCStatus.PENDING).scalar() or 0
-        
-        # Average Order Value
+
         avg_order_value = float(total_revenue / total_orders) if total_orders > 0 else 0.0
         prev_avg_order_value = float(prev_revenue / prev_orders) if prev_orders > 0 else 0.0
         avg_order_value_change = calculate_percentage_change(avg_order_value, prev_avg_order_value)
-        
-        dashboard_data = {
-            "totalRevenue": round(float(total_revenue), 2),
-            "totalOrders": total_orders,
-            "activeUsers": active_users,
-            "totalProducts": total_products,
-            "products": total_products,
-            "kycPending": kyc_pending,
-            "pendingKyc": kyc_pending,
-            "avgOrderValue": round(avg_order_value, 2),
-            "revenueChange": revenue_change,
-            "ordersChange": orders_change,
-            "usersChange": users_change,
-            "avgOrderValueChange": avg_order_value_change
-        }
-        
+
         return ResponseModel(
             success=True,
-            data=dashboard_data,
+            data={
+                "totalRevenue": round(float(total_revenue), 2),
+                "totalOrders": total_orders,
+                "activeUsers": active_users,
+                "totalProducts": total_products,
+                "products": total_products,
+                "kycPending": kyc_pending,
+                "pendingKyc": kyc_pending,
+                "avgOrderValue": round(avg_order_value, 2),
+                "revenueChange": revenue_change,
+                "ordersChange": orders_change,
+                "usersChange": users_change,
+                "avgOrderValueChange": avg_order_value_change,
+            },
             message="Dashboard metrics retrieved successfully"
         )
     except Exception as e:
@@ -152,40 +158,62 @@ async def get_revenue_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
+    divisionId: Optional[str] = Query(None, alias="divisionId"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """
     Get revenue analytics time-series data.
-    
+
     Returns daily/weekly/monthly data based on period.
+    When divisionId is provided, revenue is summed via OrderItem→Product→Division.
     """
+    def _revenue_for_range(s, e):
+        if divisionId:
+            return db.query(func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0)
+            ).join(Product, OrderItem.product_id == Product.id
+            ).join(Order, OrderItem.order_id == Order.id
+            ).filter(and_(
+                Product.division_id == divisionId,
+                Order.created_at >= s,
+                Order.created_at <= e,
+                Order.status != OrderStatus.CANCELLED,
+            )).scalar() or 0.0
+        return db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(and_(
+            Order.created_at >= s,
+            Order.created_at <= e,
+            Order.status != OrderStatus.CANCELLED,
+        )).scalar() or 0.0
+
+    def _orders_for_range(s, e):
+        if divisionId:
+            return db.query(func.count(distinct(Order.id))
+            ).join(OrderItem, Order.id == OrderItem.order_id
+            ).join(Product, OrderItem.product_id == Product.id
+            ).filter(and_(
+                Product.division_id == divisionId,
+                Order.created_at >= s,
+                Order.created_at <= e,
+            )).scalar() or 0
+        return db.query(func.count(Order.id)).filter(and_(
+            Order.created_at >= s,
+            Order.created_at <= e,
+        )).scalar() or 0
+
     try:
         start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
-        
+
         result = []
-        
+
         if period == 'week':
             # Daily data for last 7 days
             for i in range(7):
                 day_start = start_dt + timedelta(days=i)
                 day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
-                
-                revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-                    and_(
-                        Order.created_at >= day_start,
-                        Order.created_at <= day_end,
-                        Order.status != OrderStatus.CANCELLED
-                    )
-                ).scalar() or 0.0
-                
-                orders = db.query(func.count(Order.id)).filter(
-                    and_(
-                        Order.created_at >= day_start,
-                        Order.created_at <= day_end
-                    )
-                ).scalar() or 0
-                
+
+                revenue = _revenue_for_range(day_start, day_end)
+                orders = _orders_for_range(day_start, day_end)
+
                 result.append({
                     "period": format_period_label('week', day_start),
                     "name": format_period_label('week', day_start),
@@ -194,7 +222,6 @@ async def get_revenue_analytics(
                 })
         
         elif period == 'month':
-            # Weekly data for last 4 weeks
             weeks = 4
             days_per_week = 7
             for i in range(weeks):
@@ -202,141 +229,65 @@ async def get_revenue_analytics(
                 week_end = week_start + timedelta(days=days_per_week) - timedelta(seconds=1)
                 if week_end > end_dt:
                     week_end = end_dt
-                
-                revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-                    and_(
-                        Order.created_at >= week_start,
-                        Order.created_at <= week_end,
-                        Order.status != OrderStatus.CANCELLED
-                    )
-                ).scalar() or 0.0
-                
-                orders = db.query(func.count(Order.id)).filter(
-                    and_(
-                        Order.created_at >= week_start,
-                        Order.created_at <= week_end
-                    )
-                ).scalar() or 0
-                
                 result.append({
                     "period": format_period_label('month', week_start, i),
                     "name": format_period_label('month', week_start, i),
-                    "revenue": round(float(revenue), 2),
-                    "orders": orders
+                    "revenue": round(float(_revenue_for_range(week_start, week_end)), 2),
+                    "orders": _orders_for_range(week_start, week_end),
                 })
-        
+
         elif period == 'quarter':
-            # Monthly data for last 3 months
             for i in range(3):
                 month_start = start_dt.replace(day=1) + timedelta(days=32 * i)
                 month_start = month_start.replace(day=1)
-                
-                # Get last day of month
                 if month_start.month == 12:
                     month_end = month_start.replace(year=month_start.year + 1, month=1, day=1) - timedelta(seconds=1)
                 else:
                     month_end = month_start.replace(month=month_start.month + 1, day=1) - timedelta(seconds=1)
-                
                 if month_end > end_dt:
                     month_end = end_dt
-                
-                revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-                    and_(
-                        Order.created_at >= month_start,
-                        Order.created_at <= month_end,
-                        Order.status != OrderStatus.CANCELLED
-                    )
-                ).scalar() or 0.0
-                
-                orders = db.query(func.count(Order.id)).filter(
-                    and_(
-                        Order.created_at >= month_start,
-                        Order.created_at <= month_end
-                    )
-                ).scalar() or 0
-                
                 result.append({
                     "period": format_period_label('quarter', month_start),
                     "name": format_period_label('quarter', month_start),
-                    "revenue": round(float(revenue), 2),
-                    "orders": orders
+                    "revenue": round(float(_revenue_for_range(month_start, month_end)), 2),
+                    "orders": _orders_for_range(month_start, month_end),
                 })
-        
+
         elif period == 'year':
-            # Monthly data for last 12 months
             for i in range(12):
                 month_start = start_dt.replace(day=1) + timedelta(days=32 * i)
                 month_start = month_start.replace(day=1)
-                
                 if month_start.month == 12:
                     month_end = month_start.replace(year=month_start.year + 1, month=1, day=1) - timedelta(seconds=1)
                 else:
                     month_end = month_start.replace(month=month_start.month + 1, day=1) - timedelta(seconds=1)
-                
                 if month_end > end_dt:
                     month_end = end_dt
-                
-                revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-                    and_(
-                        Order.created_at >= month_start,
-                        Order.created_at <= month_end,
-                        Order.status != OrderStatus.CANCELLED
-                    )
-                ).scalar() or 0.0
-                
-                orders = db.query(func.count(Order.id)).filter(
-                    and_(
-                        Order.created_at >= month_start,
-                        Order.created_at <= month_end
-                    )
-                ).scalar() or 0
-                
                 result.append({
                     "period": format_period_label('year', month_start),
-                    "revenue": round(float(revenue), 2),
-                    "orders": orders
+                    "name": format_period_label('year', month_start),
+                    "revenue": round(float(_revenue_for_range(month_start, month_end)), 2),
+                    "orders": _orders_for_range(month_start, month_end),
                 })
-        
+
         else:  # 'all'
-            # Monthly data for all time
-            # Get first order date
             first_order = db.query(func.min(Order.created_at)).scalar()
             if not first_order:
                 return ResponseModel(success=True, data=[], message="No order data available")
-            
             current_month = first_order.replace(day=1)
             while current_month <= end_dt:
                 if current_month.month == 12:
                     month_end = current_month.replace(year=current_month.year + 1, month=1, day=1) - timedelta(seconds=1)
                 else:
                     month_end = current_month.replace(month=current_month.month + 1, day=1) - timedelta(seconds=1)
-                
                 if month_end > end_dt:
                     month_end = end_dt
-                
-                revenue = db.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(
-                    and_(
-                        Order.created_at >= current_month,
-                        Order.created_at <= month_end,
-                        Order.status != OrderStatus.CANCELLED
-                    )
-                ).scalar() or 0.0
-                
-                orders = db.query(func.count(Order.id)).filter(
-                    and_(
-                        Order.created_at >= current_month,
-                        Order.created_at <= month_end
-                    )
-                ).scalar() or 0
-                
                 result.append({
                     "period": format_period_label('all', current_month),
                     "name": format_period_label('all', current_month),
-                    "revenue": round(float(revenue), 2),
-                    "orders": orders
+                    "revenue": round(float(_revenue_for_range(current_month, month_end)), 2),
+                    "orders": _orders_for_range(current_month, month_end),
                 })
-                
-                # Move to next month
                 if current_month.month == 12:
                     current_month = current_month.replace(year=current_month.year + 1, month=1, day=1)
                 else:
