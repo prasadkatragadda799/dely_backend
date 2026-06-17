@@ -1,15 +1,15 @@
 """add cgst and sgst to product_variants
 
-Revision ID: a1b2c3d4e5f6
-Revises: z0a1b2c3d4e5
+Revision ID: f6e5d4c3b2a1
+Revises: a1b2c3d4e5f6
 Create Date: 2026-06-17
 
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = 'a1b2c3d4e5f6'
-down_revision = 'z0a1b2c3d4e5'
+revision = 'f6e5d4c3b2a1'
+down_revision = 'a1b2c3d4e5f6'
 branch_labels = None
 depends_on = None
 
