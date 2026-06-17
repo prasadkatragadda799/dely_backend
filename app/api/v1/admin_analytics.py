@@ -17,6 +17,7 @@ from app.models.user import User, KYCStatus
 from app.models.product import Product
 from app.models.category import Category
 from app.models.company import Company
+from app.models.division import Division
 from app.api.admin_deps import require_manager_or_above
 from app.models.admin import Admin
 from app.utils.analytics_helpers import (
@@ -712,6 +713,112 @@ async def get_order_analytics(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving order analytics: {str(e)}")
+
+
+@router.get("/divisions", response_model=ResponseModel)
+async def get_division_analytics(
+    period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
+    dateFrom: Optional[date] = Query(None, alias="dateFrom"),
+    dateTo: Optional[date] = Query(None, alias="dateTo"),
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Get per-division revenue, orders, and top-product breakdown."""
+    try:
+        start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
+        prev_start_dt, prev_end_dt = get_previous_period_date_range(start_dt, end_dt)
+
+        divisions = db.query(Division).filter(Division.is_active == True).order_by(Division.display_order).all()
+
+        result = []
+        for div in divisions:
+            # Current period
+            row = db.query(
+                func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0).label('revenue'),
+                func.count(distinct(Order.id)).label('orders'),
+                func.coalesce(func.sum(OrderItem.quantity), 0).label('items_sold'),
+            ).join(Product, OrderItem.product_id == Product.id
+            ).join(Order, OrderItem.order_id == Order.id
+            ).filter(
+                and_(
+                    Product.division_id == div.id,
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                    Order.status != OrderStatus.CANCELLED,
+                )
+            ).first()
+
+            revenue = float(row.revenue or 0)
+            orders = int(row.orders or 0)
+            items_sold = int(row.items_sold or 0)
+            avg_order_value = round(revenue / orders, 2) if orders > 0 else 0.0
+
+            # Previous period for % change
+            prev_row = db.query(
+                func.coalesce(func.sum(OrderItem.quantity * OrderItem.price), 0).label('revenue'),
+                func.count(distinct(Order.id)).label('orders'),
+            ).join(Product, OrderItem.product_id == Product.id
+            ).join(Order, OrderItem.order_id == Order.id
+            ).filter(
+                and_(
+                    Product.division_id == div.id,
+                    Order.created_at >= prev_start_dt,
+                    Order.created_at <= prev_end_dt,
+                    Order.status != OrderStatus.CANCELLED,
+                )
+            ).first()
+
+            prev_revenue = float(prev_row.revenue or 0)
+            prev_orders = int(prev_row.orders or 0)
+            revenue_change = calculate_percentage_change(revenue, prev_revenue)
+            orders_change = calculate_percentage_change(float(orders), float(prev_orders))
+
+            # Top 5 products in this division
+            top_products = db.query(
+                Product.name,
+                func.sum(OrderItem.quantity).label('units'),
+                func.sum(OrderItem.quantity * OrderItem.price).label('revenue'),
+            ).join(OrderItem, Product.id == OrderItem.product_id
+            ).join(Order, OrderItem.order_id == Order.id
+            ).filter(
+                and_(
+                    Product.division_id == div.id,
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                    Order.status != OrderStatus.CANCELLED,
+                )
+            ).group_by(Product.id, Product.name
+            ).order_by(func.sum(OrderItem.quantity * OrderItem.price).desc()
+            ).limit(5).all()
+
+            result.append({
+                "divisionId": div.id,
+                "name": div.name,
+                "slug": div.slug,
+                "icon": div.icon,
+                "revenue": round(revenue, 2),
+                "orders": orders,
+                "itemsSold": items_sold,
+                "avgOrderValue": avg_order_value,
+                "revenueChange": revenue_change,
+                "ordersChange": orders_change,
+                "topProducts": [
+                    {
+                        "name": p.name,
+                        "units": int(p.units or 0),
+                        "revenue": round(float(p.revenue or 0), 2),
+                    }
+                    for p in top_products
+                ],
+            })
+
+        return ResponseModel(
+            success=True,
+            data=result,
+            message="Division analytics retrieved successfully"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving division analytics: {str(e)}")
 
 
 @router.get("/export", response_model=None)
