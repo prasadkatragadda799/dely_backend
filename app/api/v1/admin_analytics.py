@@ -308,14 +308,22 @@ async def get_product_analytics(
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
     limit: Optional[int] = Query(10, ge=1, le=100),
+    divisionId: Optional[str] = Query(None, alias="divisionId"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Get top products by revenue and sales."""
     try:
         start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
-        
-        # Query top products
+
+        filters = [
+            Order.created_at >= start_dt,
+            Order.created_at <= end_dt,
+            Order.status != OrderStatus.CANCELLED,
+        ]
+        if divisionId:
+            filters.append(Product.division_id == divisionId)
+
         product_analytics = db.query(
             Product.id,
             Product.name,
@@ -325,18 +333,12 @@ async def get_product_analytics(
             OrderItem, Product.id == OrderItem.product_id
         ).join(
             Order, OrderItem.order_id == Order.id
-        ).filter(
-            and_(
-                Order.created_at >= start_dt,
-                Order.created_at <= end_dt,
-                Order.status != OrderStatus.CANCELLED
-            )
-        ).group_by(
+        ).filter(and_(*filters)).group_by(
             Product.id, Product.name
         ).order_by(
             func.sum(OrderItem.quantity * OrderItem.price).desc()
         ).limit(limit).all()
-        
+
         result = [{
             "name": row.name,
             "sales": int(row.sales or 0),
@@ -344,7 +346,7 @@ async def get_product_analytics(
             "amount": round(float(row.revenue or 0), 2),
             "productId": str(row.id)
         } for row in product_analytics]
-        
+
         return ResponseModel(
             success=True,
             data=result,
@@ -610,56 +612,82 @@ async def get_order_analytics(
     period: Optional[str] = Query('month', pattern='^(week|month|quarter|year|all)$'),
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
+    divisionId: Optional[str] = Query(None, alias="divisionId"),
     admin: Admin = Depends(require_manager_or_above),
     db: Session = Depends(get_db)
 ):
     """Get order status and payment method distribution."""
     try:
         start_dt, end_dt = get_period_date_range(period, dateFrom, dateTo)
-        
-        # Order status distribution
-        status_data = db.query(
-            Order.status,
-            func.count(Order.id).label('count')
-        ).filter(
-            and_(
-                Order.created_at >= start_dt,
-                Order.created_at <= end_dt
-            )
-        ).group_by(Order.status).all()
-        
+
+        if divisionId:
+            # Scope to orders that contain at least one item from the division
+            division_order_ids = db.query(distinct(OrderItem.order_id)).join(
+                Product, OrderItem.product_id == Product.id
+            ).filter(Product.division_id == divisionId).subquery()
+
+            status_data = db.query(
+                Order.status,
+                func.count(Order.id).label('count')
+            ).filter(
+                and_(
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                    Order.id.in_(division_order_ids),
+                )
+            ).group_by(Order.status).all()
+
+            payment_data = db.query(
+                Order.payment_method,
+                func.count(Order.id).label('count')
+            ).filter(
+                and_(
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                    Order.payment_method.isnot(None),
+                    Order.id.in_(division_order_ids),
+                )
+            ).group_by(Order.payment_method).all()
+        else:
+            status_data = db.query(
+                Order.status,
+                func.count(Order.id).label('count')
+            ).filter(
+                and_(
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                )
+            ).group_by(Order.status).all()
+
+            payment_data = db.query(
+                Order.payment_method,
+                func.count(Order.id).label('count')
+            ).filter(
+                and_(
+                    Order.created_at >= start_dt,
+                    Order.created_at <= end_dt,
+                    Order.payment_method.isnot(None),
+                )
+            ).group_by(Order.payment_method).all()
+
         status_distribution = [{
             "name": row.status.value.capitalize() if hasattr(row.status, 'value') else str(row.status).capitalize(),
             "value": int(row.count),
             "color": get_status_color(row.status.value if hasattr(row.status, 'value') else str(row.status))
         } for row in status_data]
-        
-        # Payment method distribution
-        payment_data = db.query(
-            Order.payment_method,
-            func.count(Order.id).label('count')
-        ).filter(
-            and_(
-                Order.created_at >= start_dt,
-                Order.created_at <= end_dt,
-                Order.payment_method.isnot(None)
-            )
-        ).group_by(Order.payment_method).all()
-        
+
         payment_method_distribution = [{
             "name": str(row.payment_method).replace('_', ' ').title() if row.payment_method else "Unknown",
             "value": int(row.count),
             "color": get_payment_method_color(str(row.payment_method) if row.payment_method else "unknown")
         } for row in payment_data]
-        
-        analytics_data = {
-            "statusDistribution": status_distribution,
-            "paymentMethodDistribution": payment_method_distribution
-        }
-        
+
         return ResponseModel(
             success=True,
-            data=analytics_data,
+            data={
+                "statusDistribution": status_distribution,
+                "paymentMethodDistribution": payment_method_distribution,
+            },
             message="Order analytics retrieved successfully"
         )
     except Exception as e:
