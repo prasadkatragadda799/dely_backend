@@ -95,3 +95,20 @@ def update_division(
     db.commit()
     db.refresh(d)
     return ResponseModel(success=True, data=AdminDivisionResponse.model_validate(d), message="Division updated")
+
+
+@router.delete("/{division_id}", response_model=ResponseModel)
+def delete_division(
+    division_id: UUID,
+    admin: Admin = Depends(require_manager_or_above),
+    db: Session = Depends(get_db)
+):
+    """Delete a division. The 'default' (Grocery) division cannot be deleted."""
+    d = db.query(Division).filter(Division.id == str(division_id)).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Division not found")
+    if d.slug == "default":
+        raise HTTPException(status_code=400, detail="The default Grocery division cannot be deleted")
+    db.delete(d)
+    db.commit()
+    return ResponseModel(success=True, data=None, message="Division deleted")
