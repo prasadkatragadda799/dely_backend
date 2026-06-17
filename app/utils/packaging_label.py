@@ -79,5 +79,7 @@ def variant_row_for_public_api(v: Any, variant_mrp: Any, variant_price: Any, var
         "specialPrice": float(variant_price) if variant_price is not None else None,
         "discountPercentage": variant_discount,
         "freeItem": getattr(v, "free_item", None),
+        "cgst": float(getattr(v, "cgst", 0) or 0),
+        "sgst": float(getattr(v, "sgst", 0) or 0),
         "images": variant_image_urls(v),
     }

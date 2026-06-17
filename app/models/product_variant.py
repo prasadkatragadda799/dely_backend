@@ -20,6 +20,8 @@ class ProductVariant(Base):
     free_item = Column(String(255), nullable=True)
     min_order_quantity = Column(Integer, default=1, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)  # Display/selection order (matches admin form order)
+    cgst = Column(Numeric(5, 2), nullable=False, default=0)
+    sgst = Column(Numeric(5, 2), nullable=False, default=0)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

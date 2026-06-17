@@ -50,6 +50,7 @@ def calculate_order_totals(items: list, db: Session) -> dict:
     """Calculate order totals"""
     subtotal = Decimal('0.00')
     discount = Decimal('0.00')
+    tax = Decimal('0.00')
     
     for item in items:
         # `products.id` is String(36) in DB; request schemas may provide UUID objects
@@ -119,15 +120,17 @@ def calculate_order_totals(items: list, db: Session) -> dict:
         item_discount = (mrp - selling_price) * qty if mrp and selling_price else Decimal("0.00")
         subtotal += item_subtotal
         discount += item_discount
-    
+
+        # Accumulate tax using the variant's explicit CGST+SGST when set; otherwise
+        # fall back to 18%. Selling prices are GST-inclusive so tax is extracted, not added.
+        _cgst = float(getattr(variant, "cgst", 0) or 0) if variant else 0
+        _sgst = float(getattr(variant, "sgst", 0) or 0) if variant else 0
+        _item_rate = Decimal(str(_cgst + _sgst)) if (_cgst + _sgst) > 0 else Decimal("18")
+        tax += item_subtotal * _item_rate / (Decimal("100") + _item_rate)
+
     # Calculate delivery charge
     delivery_charge = Decimal('0.00') if subtotal >= 1000 else Decimal('50.00')
-    
-    # Selling prices are GST-inclusive (tax is already embedded in the price the
-    # customer sees). Extract the GST portion for invoice reporting — do NOT add
-    # it again on top, which would inflate the total by 18% incorrectly.
-    # tax = subtotal × rate / (1 + rate)  →  the share of tax already inside subtotal
-    tax = subtotal * Decimal('0.18') / Decimal('1.18')
+    # tax is accumulated per-line above using variant-specific rates.
 
     # Total payable = selling-price sum + delivery. Tax is already inside subtotal.
     total = subtotal + delivery_charge

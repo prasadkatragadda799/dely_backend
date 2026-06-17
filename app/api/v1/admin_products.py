@@ -199,6 +199,8 @@ async def list_products(
                     "specialPrice": getattr(v, "special_price", None),
                     "freeItem": getattr(v, "free_item", None),
                     "minOrderQuantity": getattr(v, "min_order_quantity", 1) or 1,
+                    "cgst": getattr(v, "cgst", None) or Decimal("0.00"),
+                    "sgst": getattr(v, "sgst", None) or Decimal("0.00"),
                     "images": [
                         ProductImageResponse.model_validate(img)
                         for img in (getattr(v, "images", None) or [])
@@ -570,6 +572,8 @@ async def create_product(
                     free_item=v.get("freeItem") or v.get("free_item"),
                     min_order_quantity=int(_moq) if _moq and int(_moq) >= 1 else 1,
                     sort_order=idx,
+                    cgst=Decimal(str(v.get("cgst") or 0)),
+                    sgst=Decimal(str(v.get("sgst") or 0)),
                 )
                 db.add(variant)
                 created_variants.append(variant)
@@ -1052,6 +1056,8 @@ async def update_product(
                     target.free_item = v.get("freeItem") or v.get("free_item")
                     target.min_order_quantity = _moq_int
                     target.sort_order = idx
+                    target.cgst = Decimal(str(v.get("cgst") or 0))
+                    target.sgst = Decimal(str(v.get("sgst") or 0))
                     submitted_ids.add(str(target.id))
                     created_variants.append(target)
                 else:
@@ -1068,6 +1074,8 @@ async def update_product(
                         free_item=v.get("freeItem") or v.get("free_item"),
                         min_order_quantity=_moq_int,
                         sort_order=idx,
+                        cgst=Decimal(str(v.get("cgst") or 0)),
+                        sgst=Decimal(str(v.get("sgst") or 0)),
                     )
                     db.add(variant)
                     created_variants.append(variant)

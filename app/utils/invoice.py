@@ -230,15 +230,29 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
 
         hsn_code = None
         variant_name = None
+        variant_cgst: Optional[float] = None
+        variant_sgst: Optional[float] = None
         if product:
-            if hasattr(product, "variants") and product.variants:
-                first_variant = product.variants[0]
-                hsn_code = first_variant.hsn_code if first_variant.hsn_code else None
+            # Find the specific ordered variant (if any) so we use its tax rates.
+            ordered_variant = None
+            if item.variant_id and hasattr(product, "variants") and product.variants:
+                ordered_variant = next(
+                    (v for v in product.variants if str(v.id) == str(item.variant_id)), None
+                )
+            ref_variant = ordered_variant or (product.variants[0] if hasattr(product, "variants") and product.variants else None)
+            if ref_variant:
+                hsn_code = ref_variant.hsn_code if ref_variant.hsn_code else None
                 variant_name = (
-                    f"{first_variant.set_pcs or product.unit} ({first_variant.weight or 'Set of 1'})"
-                    if first_variant.set_pcs or first_variant.weight
+                    f"{ref_variant.set_pcs or product.unit} ({ref_variant.weight or 'Set of 1'})"
+                    if ref_variant.set_pcs or ref_variant.weight
                     else product.unit
                 )
+                _cgst = getattr(ref_variant, "cgst", None)
+                _sgst = getattr(ref_variant, "sgst", None)
+                if _cgst is not None:
+                    variant_cgst = float(_cgst)
+                if _sgst is not None:
+                    variant_sgst = float(_sgst)
             if not hsn_code:
                 hsn_code = product.hsn_code or "07139090"
             if not variant_name:
@@ -258,7 +272,11 @@ def build_invoice_data(order: Any, user: Any, db: Session) -> Dict[str, Any]:
 
         # MRP / selling_price is GST-inclusive. Extract base (excl. GST) and tax.
         # base = price / (1 + rate/100), tax = price - base
-        tax_rate = calculate_tax_rate(hsn_code)
+        # Prefer the variant-stored CGST+SGST rates over HSN lookup when set.
+        if variant_cgst is not None and variant_sgst is not None and (variant_cgst + variant_sgst) > 0:
+            tax_rate = variant_cgst + variant_sgst
+        else:
+            tax_rate = calculate_tax_rate(hsn_code)
         divisor = Decimal("1") + Decimal(str(tax_rate)) / Decimal("100")
         base_price = selling_price / divisor          # per-unit excl. GST
         tax_per_unit = selling_price - base_price     # per-unit GST portion

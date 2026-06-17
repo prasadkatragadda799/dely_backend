@@ -88,6 +88,8 @@ class AdminProductVariantResponse(BaseModel):
     specialPrice: Optional[Decimal] = None
     freeItem: Optional[str] = None
     minOrderQuantity: int = 1
+    cgst: Decimal = Decimal("0.00")
+    sgst: Decimal = Decimal("0.00")
     images: List[ProductImageResponse] = Field(default_factory=list)
 
     class Config:
@@ -210,6 +212,8 @@ class AdminProductResponse(BaseModel):
                             specialPrice=getattr(v, "special_price", None),
                             freeItem=getattr(v, "free_item", None),
                             minOrderQuantity=getattr(v, "min_order_quantity", 1) or 1,
+                            cgst=getattr(v, "cgst", None) or Decimal("0.00"),
+                            sgst=getattr(v, "sgst", None) or Decimal("0.00"),
                             images=v_images,
                         )
                     )
