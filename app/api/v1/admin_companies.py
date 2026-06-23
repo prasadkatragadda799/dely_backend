@@ -15,7 +15,7 @@ from app.schemas.common import ResponseModel
 from app.models.company import Company
 from app.models.brand import Brand
 from app.models.product import Product
-from app.api.admin_deps import require_manager_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.api.v1.admin_upload import save_uploaded_file
 from app.models.admin import Admin
@@ -64,7 +64,7 @@ def _brand_to_admin_response(brand: Brand) -> AdminBrandResponse:
 
 @router.get("/companies", response_model=ResponseModel)
 async def list_companies(
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all companies with product and brand counts"""
@@ -111,7 +111,7 @@ async def list_companies(
 @router.get("/companies/{company_id}", response_model=ResponseModel)
 async def get_company(
     company_id: UUID,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get company details"""
@@ -179,7 +179,7 @@ async def create_company(
     logo: Optional[UploadFile] = File(None),  # Logo file upload
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     zoneId: Optional[str] = Form(None),  # Zone assignment
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new company with form data and optional logo upload"""
@@ -260,7 +260,7 @@ async def update_company(
     logo: Optional[UploadFile] = File(None),  # New logo file (optional)
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     zoneId: Optional[str] = Form(None),  # Zone assignment ("" to unassign)
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a company using multipart/form-data (supports optional logo upload)"""
@@ -363,7 +363,7 @@ async def update_company(
 async def delete_company(
     company_id: UUID,
     request: Request,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Delete a company"""
@@ -471,7 +471,7 @@ async def delete_company(
 @router.get("/brands", response_model=ResponseModel)
 async def list_brands(
     company_id: Optional[UUID] = Query(None),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all brands, optionally filtered by company"""
@@ -517,7 +517,7 @@ async def list_brands(
 @router.get("/brands/{brand_id}", response_model=ResponseModel)
 async def get_brand(
     brand_id: UUID,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get brand details"""
@@ -544,7 +544,7 @@ async def create_brand(
     categoryId: Optional[str] = Form(None),  # Frontend sends as categoryId
     logo: Optional[UploadFile] = File(None),  # Logo file upload
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new brand with form data and optional logo upload"""
@@ -628,7 +628,7 @@ async def update_brand(
     logo: Optional[UploadFile] = File(None),
     logoUrl: Optional[str] = Form(None),
     logo_url: Optional[str] = Form(None),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a brand"""
@@ -722,7 +722,7 @@ async def update_brand(
 async def delete_brand(
     brand_id: UUID,
     request: Request,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Delete a brand"""

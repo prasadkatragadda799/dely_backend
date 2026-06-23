@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.schemas.common import ResponseModel
-from app.api.admin_deps import get_current_active_admin, require_manager_or_above
+from app.api.admin_deps import get_current_active_admin, require_manager_or_above, require_office_staff_or_above
 from app.models.order_return import OrderReturn
 from app.models.order import Order
 from app.models.delivery_person import DeliveryPerson
@@ -89,7 +89,7 @@ def get_return(
 def approve_return(
     return_id: str,
     payload: dict,
-    admin=Depends(require_manager_or_above),
+    admin=Depends(require_office_staff_or_above),
     db: Session = Depends(get_db),
 ):
     """Approve a return request."""
@@ -126,7 +126,7 @@ def approve_return(
 def reject_return(
     return_id: str,
     payload: dict,
-    admin=Depends(require_manager_or_above),
+    admin=Depends(require_office_staff_or_above),
     db: Session = Depends(get_db),
 ):
     """Reject a return request."""
@@ -167,7 +167,7 @@ def reject_return(
 def assign_pickup_delivery(
     return_id: str,
     payload: dict,
-    admin=Depends(require_manager_or_above),
+    admin=Depends(require_office_staff_or_above),
     db: Session = Depends(get_db),
 ):
     """Assign a delivery person to collect the return from the customer."""

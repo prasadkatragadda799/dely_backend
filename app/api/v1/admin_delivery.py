@@ -12,7 +12,7 @@ from app.schemas.delivery import DeliveryPersonCreate, DeliveryPersonUpdate, Ord
 from app.models.delivery_person import DeliveryPerson
 from app.models.order import Order, OrderStatus
 from app.models.admin import Admin
-from app.api.admin_deps import require_manager_or_above
+from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above
 from app.utils.security import get_password_hash
 from app.utils.admin_activity import log_admin_activity
 import secrets
@@ -28,7 +28,7 @@ async def list_delivery_persons(
     is_active: Optional[bool] = None,
     is_available: Optional[bool] = None,
     is_online: Optional[bool] = None,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all delivery persons with filters"""
@@ -251,7 +251,7 @@ async def update_delivery_person(
 async def assign_order_to_delivery(
     assignment: OrderAssignment,
     request: Request,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Assign an order to a delivery person"""

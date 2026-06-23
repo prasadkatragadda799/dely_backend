@@ -11,6 +11,7 @@ class AdminRole(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     MANAGER = "manager"
+    OFFICE_STAFF = "office_staff"
     SELLER = "seller"  # Seller role - can only manage their own products
     SUPPORT = "support"
 

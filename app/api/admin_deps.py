@@ -193,6 +193,18 @@ async def require_manager_or_above(
     return current_admin
 
 
+async def require_office_staff_or_above(
+    current_admin: Admin = Depends(get_current_active_admin)
+) -> Admin:
+    """Require office_staff, manager, admin, or super admin role"""
+    if current_admin.role not in [AdminRole.SUPER_ADMIN, AdminRole.ADMIN, AdminRole.MANAGER, AdminRole.OFFICE_STAFF]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Office staff, manager, admin, or super admin role required."
+        )
+    return current_admin
+
+
 async def require_seller_or_above(
     current_admin: Admin = Depends(get_current_active_admin)
 ) -> Admin:

@@ -18,7 +18,7 @@ from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.product_image import ProductImage
 from app.models.order_status_history import OrderStatusHistory
-from app.api.admin_deps import require_manager_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.pagination import paginate
 from app.utils.notification_helper import create_notification
@@ -73,7 +73,7 @@ async def list_orders(
     search: Optional[str] = None,
     sort: Optional[str] = Query("createdAt", alias="sort"),
     order: Optional[str] = Query("desc", pattern="^(asc|desc)$"),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all orders with filters"""
@@ -279,7 +279,7 @@ async def list_orders(
 @router.get("/{order_id}", response_model=ResponseModel)
 async def get_order(
     order_id: UUID,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get order details"""

@@ -25,7 +25,7 @@ from app.models.product_image import ProductImage
 from app.models.product_variant import ProductVariant
 from app.models.product_variant_image import ProductVariantImage
 from app.models.admin import Admin
-from app.api.admin_deps import require_manager_or_above, get_current_active_admin, get_product_service
+from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above, get_current_active_admin, get_product_service
 from app.services.product_service import ProductService
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
@@ -120,7 +120,7 @@ async def list_products(
         pattern="^(seller|platform)$",
         description="seller: only marketplace seller listings; platform: not created by a seller.",
     ),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     product_service: ProductService = Depends(get_product_service),
 ):
     """List all products with filters and pagination (includes seller-created products)."""
@@ -253,7 +253,7 @@ async def list_products(
 @router.get("/{product_id}", response_model=ResponseModel)
 async def get_product(
     product_id: UUID,
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     product_service: ProductService = Depends(get_product_service),
 ):
     """Get product details. Raises NotFoundError (404) if not found."""
