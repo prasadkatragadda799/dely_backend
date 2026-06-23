@@ -18,7 +18,7 @@ from app.models.product import Product
 from app.models.category import Category
 from app.models.company import Company
 from app.models.division import Division
-from app.api.admin_deps import require_manager_or_above
+from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above
 from app.models.admin import Admin
 from app.utils.analytics_helpers import (
     get_period_date_range,
@@ -39,7 +39,7 @@ async def get_dashboard_metrics(
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
     divisionId: Optional[str] = Query(None, alias="divisionId"),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """
