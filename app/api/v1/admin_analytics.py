@@ -159,7 +159,7 @@ async def get_revenue_analytics(
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
     divisionId: Optional[str] = Query(None, alias="divisionId"),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """
@@ -309,7 +309,7 @@ async def get_product_analytics(
     dateTo: Optional[date] = Query(None, alias="dateTo"),
     limit: Optional[int] = Query(10, ge=1, le=100),
     divisionId: Optional[str] = Query(None, alias="divisionId"),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get top products by revenue and sales."""
@@ -613,7 +613,7 @@ async def get_order_analytics(
     dateFrom: Optional[date] = Query(None, alias="dateFrom"),
     dateTo: Optional[date] = Query(None, alias="dateTo"),
     divisionId: Optional[str] = Query(None, alias="divisionId"),
-    admin: Admin = Depends(require_manager_or_above),
+    admin: Admin = Depends(require_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get order status and payment method distribution."""
