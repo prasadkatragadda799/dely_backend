@@ -102,14 +102,14 @@ class AdminUserCreate(BaseModel):
     name: str
     email: EmailStr
     password: str = Field(min_length=6)
-    role: str = Field(pattern="^(super_admin|admin|manager|support|seller)$")
+    role: str = Field(pattern="^(super_admin|admin|manager|office_staff|support|seller)$")
 
 
 class AdminUserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = Field(None, min_length=6)
-    role: Optional[str] = Field(None, pattern="^(super_admin|admin|manager|support|seller)$")
+    role: Optional[str] = Field(None, pattern="^(super_admin|admin|manager|office_staff|support|seller)$")
     status: Optional[str] = Field(None, pattern="^(active|inactive)$")
     is_active: Optional[bool] = None  # Alternative to status
 
