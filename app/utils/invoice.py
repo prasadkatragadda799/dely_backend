@@ -33,22 +33,30 @@ def get_seller_info() -> Dict[str, Any]:
     Get seller/company information for invoices.
     This can be configured via environment variables or database settings.
     """
-    # For now, use environment variables or defaults
-    # In production, this should come from a settings/company table
+    name = settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "FOODISTIC MARKETING SERVICES PVT LTD"
+    addr1 = settings.SELLER_ADDRESS_LINE1 if hasattr(settings, 'SELLER_ADDRESS_LINE1') else "VIMTI LAXIRAMPUR HEERA PATTI SADAR AZAMGARH"
+    addr2 = settings.SELLER_ADDRESS_LINE2 if hasattr(settings, 'SELLER_ADDRESS_LINE2') else ""
+    city = settings.SELLER_CITY if hasattr(settings, 'SELLER_CITY') else "Azamgarh"
+    state = settings.SELLER_STATE if hasattr(settings, 'SELLER_STATE') else "Uttar Pradesh"
+    pincode = settings.SELLER_PINCODE if hasattr(settings, 'SELLER_PINCODE') else "276001"
+    gstin = settings.SELLER_GSTIN if hasattr(settings, 'SELLER_GSTIN') else "09AAFCF9954NTZQ"
+    fssai = settings.SELLER_FSSAI if hasattr(settings, 'SELLER_FSSAI') else "12724028000313"
+    address = f"{addr1}, {addr2}".rstrip(", ") if addr2 else addr1
     return {
-        "name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "FOODISTIC MARKETING SERVICES PVT LTD",
-        "company_name": settings.SELLER_NAME if hasattr(settings, 'SELLER_NAME') else "FOODISTIC MARKETING SERVICES PVT LTD",
-        "address_line1": settings.SELLER_ADDRESS_LINE1 if hasattr(settings, 'SELLER_ADDRESS_LINE1') else "No 331, Sarai Jagarnath",
-        "address_line2": settings.SELLER_ADDRESS_LINE2 if hasattr(settings, 'SELLER_ADDRESS_LINE2') else "pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh",
-        "address": f"{settings.SELLER_ADDRESS_LINE1 if hasattr(settings, 'SELLER_ADDRESS_LINE1') else 'No 331, Sarai Jagarnath'}, {settings.SELLER_ADDRESS_LINE2 if hasattr(settings, 'SELLER_ADDRESS_LINE2') else 'pargana - Nizamabad, Tehsil - Sadar, Janpad & Dist - Azamgarh'}",
-        "city": settings.SELLER_CITY if hasattr(settings, 'SELLER_CITY') else "Azamgarh",
-        "state": settings.SELLER_STATE if hasattr(settings, 'SELLER_STATE') else "Uttar Pradesh",
-        "pincode": settings.SELLER_PINCODE if hasattr(settings, 'SELLER_PINCODE') else "276207",
-        "gstin": settings.SELLER_GSTIN if hasattr(settings, 'SELLER_GSTIN') else "09AAFCF9954N1ZQ",
-        "gst_number": settings.SELLER_GSTIN if hasattr(settings, 'SELLER_GSTIN') else "09AAFCF9954N1ZQ",
+        "name": name,
+        "company_name": name,
+        "address_line1": addr1,
+        "address_line2": addr2,
+        "address": address,
+        "city": city,
+        "state": state,
+        "pincode": pincode,
+        "gstin": gstin,
+        "gst_number": gstin,
         "pan": settings.SELLER_PAN if hasattr(settings, 'SELLER_PAN') else "AAFCF9954N",
-        "phone": settings.SELLER_PHONE if hasattr(settings, 'SELLER_PHONE') else "+91 XXXXX XXXXX",
-        "email": settings.SELLER_EMAIL if hasattr(settings, 'SELLER_EMAIL') else "company@example.com",
+        "phone": settings.SELLER_PHONE if hasattr(settings, 'SELLER_PHONE') else "9473691259",
+        "email": settings.SELLER_EMAIL if hasattr(settings, 'SELLER_EMAIL') else "foodmarketingpvtltd@gmail.com",
+        "fssai": fssai,
         "logo_url": (
             (settings.SELLER_LOGO_URL or "").strip()
             if hasattr(settings, "SELLER_LOGO_URL")
