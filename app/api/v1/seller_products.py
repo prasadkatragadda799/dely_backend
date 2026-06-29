@@ -246,8 +246,8 @@ async def create_seller_product(
     brandId: Optional[str] = Form(None),
     company_id: Optional[str] = Form(None),
     companyId: Optional[str] = Form(None),
-    mrp: Decimal = Form(...),
-    sellingPrice: Decimal = Form(...),
+    mrp: Optional[Decimal] = Form(None),
+    sellingPrice: Optional[Decimal] = Form(None),
     selling_price: Optional[Decimal] = Form(None),  # allow snake_case too
     stockQuantity: Optional[int] = Form(None),
     stock_quantity: Optional[int] = Form(None),
@@ -292,7 +292,9 @@ async def create_seller_product(
     division_id_param = divisionId or division_id
     brand_id = brand_id or brandId
     company_id = company_id or companyId
-    sellingPrice = sellingPrice if sellingPrice is not None else (selling_price if selling_price is not None else sellingPrice)
+    sellingPrice = sellingPrice if sellingPrice is not None else (selling_price if selling_price is not None else Decimal("0"))
+    if mrp is None:
+        mrp = Decimal("0")
     stockQuantity = stockQuantity if stockQuantity is not None else stock_quantity
     minOrderQuantity = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
     piecesPerSet = piecesPerSet if piecesPerSet is not None else pieces_per_set
