@@ -15,7 +15,7 @@ from app.schemas.common import ResponseModel
 from app.models.company import Company
 from app.models.brand import Brand
 from app.models.product import Product
-from app.api.admin_deps import require_manager_or_above, require_office_staff_or_above, require_seller_or_office_staff_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, require_seller_or_office_staff_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.api.v1.admin_upload import save_uploaded_file
 from app.models.admin import Admin
@@ -64,7 +64,7 @@ def _brand_to_admin_response(brand: Brand) -> AdminBrandResponse:
 
 @router.get("/companies", response_model=ResponseModel)
 async def list_companies(
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all companies with product and brand counts"""
@@ -111,7 +111,7 @@ async def list_companies(
 @router.get("/companies/{company_id}", response_model=ResponseModel)
 async def get_company(
     company_id: UUID,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get company details"""
@@ -179,7 +179,7 @@ async def create_company(
     logo: Optional[UploadFile] = File(None),  # Logo file upload
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     zoneId: Optional[str] = Form(None),  # Zone assignment
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new company with form data and optional logo upload"""
@@ -260,7 +260,7 @@ async def update_company(
     logo: Optional[UploadFile] = File(None),  # New logo file (optional)
     logoUrl: Optional[str] = Form(None),  # Or provide URL directly
     zoneId: Optional[str] = Form(None),  # Zone assignment ("" to unassign)
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Update a company using multipart/form-data (supports optional logo upload)"""
@@ -363,7 +363,7 @@ async def update_company(
 async def delete_company(
     company_id: UUID,
     request: Request,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Delete a company"""
