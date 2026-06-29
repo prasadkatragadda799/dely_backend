@@ -16,7 +16,7 @@ from app.schemas.admin_category import (
 from app.schemas.common import ResponseModel
 from app.models.category import Category
 from app.models.product import Product
-from app.api.admin_deps import require_manager_or_above, require_seller_or_above, require_office_staff_or_above, get_current_active_admin
+from app.api.admin_deps import require_manager_or_above, require_seller_or_above, require_office_staff_or_above, require_seller_or_office_staff_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
 from app.models.admin import Admin
@@ -96,7 +96,7 @@ def build_category_tree(db: Session, categories: list, parent_id: Optional[str] 
 
 @router.get("", response_model=ResponseModel)
 async def list_categories(
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """List all categories in hierarchical tree structure (accessible by sellers too)"""
@@ -123,7 +123,7 @@ async def list_categories(
 @router.get("/{category_id}", response_model=ResponseModel)
 async def get_category(
     category_id: UUID,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Get category details"""
@@ -187,7 +187,7 @@ async def get_category(
 async def create_category(
     category_data: AdminCategoryCreate,
     request: Request,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Create a new category or subcategory"""
@@ -303,7 +303,7 @@ async def update_category(
     category_id: UUID,
     category_data: AdminCategoryUpdate,
     request: Request,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Update an existing category"""
@@ -444,7 +444,7 @@ async def update_category(
 async def delete_category(
     category_id: UUID,
     request: Request,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Delete a category"""
@@ -510,7 +510,7 @@ async def delete_category(
 async def reorder_categories(
     reorder_data: CategoryReorderRequest,
     request: Request,
-    admin: Admin = Depends(require_office_staff_or_above),
+    admin: Admin = Depends(require_seller_or_office_staff_or_above),
     db: Session = Depends(get_db)
 ):
     """Reorder categories"""

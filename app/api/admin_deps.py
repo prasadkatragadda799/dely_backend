@@ -225,6 +225,19 @@ async def require_seller_or_above(
     return current_admin
 
 
+async def require_seller_or_office_staff_or_above(
+    current_admin: Admin = Depends(get_current_active_admin)
+) -> Admin:
+    """Require seller, office_staff, manager, admin, or super admin role"""
+    role = _coerce_admin_role(current_admin.role)
+    if role not in [AdminRole.SUPER_ADMIN, AdminRole.ADMIN, AdminRole.MANAGER, AdminRole.OFFICE_STAFF, AdminRole.SELLER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Seller, office staff, manager, admin, or super admin role required."
+        )
+    return current_admin
+
+
 def require_seller():
     """Require seller role only"""
     async def seller_checker(
