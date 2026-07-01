@@ -518,12 +518,18 @@ async def create_seller_product(
         request=request
     )
     
+    db.refresh(new_product)
+    saved_variants = db.query(ProductVariant).filter(
+        ProductVariant.product_id == str(new_product.id)
+    ).order_by(ProductVariant.sort_order).all()
+
     return ResponseModel(
         success=True,
         data={
             "id": str(new_product.id),
             "name": new_product.name,
-            "slug": new_product.slug
+            "slug": new_product.slug,
+            "variants": [{"id": str(v.id)} for v in saved_variants],
         },
         message="Product created successfully"
     )
@@ -796,12 +802,17 @@ async def update_seller_product(
         request=request
     )
 
+    saved_variants = db.query(ProductVariant).filter(
+        ProductVariant.product_id == str(product.id)
+    ).order_by(ProductVariant.sort_order).all()
+
     return ResponseModel(
         success=True,
         data={
             "id": str(product.id),
             "name": product.name,
-            "slug": product.slug
+            "slug": product.slug,
+            "variants": [{"id": str(v.id)} for v in saved_variants],
         },
         message="Product updated successfully"
     )
