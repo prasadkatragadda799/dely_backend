@@ -3,8 +3,8 @@ Seller Product Management Endpoints
 Sellers can manage products across companies (as requested).
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Form, File, UploadFile
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import or_, and_, func
 from typing import Optional, List, Union
 from uuid import UUID
 from datetime import date, timedelta
@@ -22,6 +22,7 @@ from app.models.brand import Brand
 from app.models.company import Company
 from app.models.product_image import ProductImage
 from app.models.product_variant import ProductVariant
+from app.models.product_variant_image import ProductVariantImage
 from app.api.admin_deps import require_seller_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug, make_unique_slug
@@ -194,11 +195,22 @@ async def get_seller_product(
     Get product details.
     Sellers can only view products from their company.
     """
-    product = db.query(Product).filter(Product.id == product_id).first()
-    
+    product = (
+        db.query(Product)
+        .options(
+            joinedload(Product.category),
+            joinedload(Product.brand_rel),
+            joinedload(Product.company),
+            joinedload(Product.product_images),
+            joinedload(Product.variants).selectinload(ProductVariant.images),
+        )
+        .filter(Product.id == product_id)
+        .first()
+    )
+
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     # Check access
     if not check_seller_product_access(seller, product):
         raise HTTPException(
@@ -267,6 +279,14 @@ async def get_seller_product(
             "min_order_quantity": getattr(v, "min_order_quantity", 1) or 1,
             "cgst": float(getattr(v, "cgst", 0) or 0),
             "sgst": float(getattr(v, "sgst", 0) or 0),
+            "images": [{
+                "id": str(img.id),
+                "imageUrl": img.image_url,
+                "image_url": img.image_url,
+                "url": img.image_url,
+                "is_primary": img.is_primary,
+                "display_order": img.display_order,
+            } for img in (v.images or [])],
         } for v in product.variants] if product.variants else [],
         "created_at": product.created_at.isoformat() if product.created_at else None,
         "updated_at": product.updated_at.isoformat() if product.updated_at else None
@@ -1098,3 +1118,119 @@ async def update_seller_product_service_area(
         },
         message="Service area updated successfully",
     )
+
+
+# ── Per-variant image gallery ─────────────────────────────────────────────────
+
+@router.post("/{product_id}/variants/{variant_id}/images", response_model=ResponseModel)
+async def upload_seller_variant_images(
+    product_id: str,
+    variant_id: str,
+    request: Request,
+    primaryIndex: Optional[int] = Form(None),
+    primary_index: Optional[int] = Form(None),
+    seller: Admin = Depends(require_seller_or_above),
+    db: Session = Depends(get_db),
+):
+    """Upload one or more images for a single product variant."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_seller_product_access(seller, product):
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id,
+        ProductVariant.product_id == product_id,
+    ).first()
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    form = await request.form()
+    image_files: List[UploadFile] = []
+    for key, val in form.multi_items():
+        if key == "images" and isinstance(val, UploadFile) and val.filename:
+            image_files.append(val)
+
+    if not image_files:
+        raise HTTPException(status_code=400, detail="No images provided")
+
+    primary_idx = primaryIndex if primaryIndex is not None else primary_index
+    max_order = db.query(func.max(ProductVariantImage.display_order)).filter(
+        ProductVariantImage.product_variant_id == variant.id
+    ).scalar() or 0
+
+    uploaded: List[ProductVariantImage] = []
+    for idx, image in enumerate(image_files):
+        try:
+            image_url = save_uploaded_file(image, "variant", variant.id, request)
+            vimg = ProductVariantImage(
+                product_variant_id=variant.id,
+                image_url=image_url,
+                display_order=max_order + idx + 1,
+                is_primary=(primary_idx is not None and idx == primary_idx),
+            )
+            db.add(vimg)
+            uploaded.append(vimg)
+        except Exception:
+            continue
+
+    if primary_idx is not None and uploaded:
+        db.query(ProductVariantImage).filter(
+            ProductVariantImage.product_variant_id == variant.id,
+            ProductVariantImage.id.notin_([img.id for img in uploaded]),
+        ).update({"is_primary": False}, synchronize_session=False)
+
+    db.commit()
+    for img in uploaded:
+        db.refresh(img)
+
+    return ResponseModel(
+        success=True,
+        data={
+            "images": [{
+                "id": str(img.id),
+                "imageUrl": img.image_url,
+                "image_url": img.image_url,
+                "is_primary": img.is_primary,
+                "display_order": img.display_order,
+            } for img in uploaded]
+        },
+        message="Variant images uploaded successfully",
+    )
+
+
+@router.delete("/{product_id}/variants/{variant_id}/images/{image_id}", response_model=ResponseModel)
+async def delete_seller_variant_image(
+    product_id: str,
+    variant_id: str,
+    image_id: str,
+    request: Request,
+    seller: Admin = Depends(require_seller_or_above),
+    db: Session = Depends(get_db),
+):
+    """Delete a single image from a variant's gallery."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_seller_product_access(seller, product):
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id,
+        ProductVariant.product_id == product_id,
+    ).first()
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    image = db.query(ProductVariantImage).filter(
+        ProductVariantImage.id == image_id,
+        ProductVariantImage.product_variant_id == variant.id,
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Variant image not found")
+
+    db.delete(image)
+    db.commit()
+
+    return ResponseModel(success=True, message="Variant image deleted")
