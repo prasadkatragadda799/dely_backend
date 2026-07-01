@@ -703,23 +703,22 @@ async def delete_seller_product(
             detail="Access denied. You can only delete products created by you."
         )
     
-    # Soft delete
-    product.is_available = False
+    product_name = product.name
+    product_uuid = UUID(str(product.id))
+
+    db.delete(product)
     db.commit()
-    
-    # Log activity
+
     log_admin_activity(
         db=db,
         admin_id=seller.id,
         action="product_deleted",
         entity_type="product",
-        entity_id=UUID(str(product.id)),
-        details={
-            "product_name": product.name
-        },
+        entity_id=product_uuid,
+        details={"product_name": product_name},
         request=request
     )
-    
+
     return ResponseModel(
         success=True,
         message="Product deleted successfully"
