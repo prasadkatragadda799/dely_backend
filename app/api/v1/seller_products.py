@@ -185,6 +185,8 @@ async def get_seller_product(
         "name": product.name,
         "slug": product.slug,
         "description": product.description,
+        "hsnCode": getattr(product, "hsn_code", None),
+        "hsn_code": getattr(product, "hsn_code", None),
         "mrp": float(product.mrp) if product.mrp else 0.0,
         "selling_price": float(product.selling_price) if product.selling_price else 0.0,
         "stock_quantity": product.stock_quantity,
@@ -274,6 +276,8 @@ async def create_seller_product(
     unit: str = Form(...),
     piecesPerSet: Optional[int] = Form(None),
     pieces_per_set: Optional[int] = Form(None),
+    hsnCode: Optional[str] = Form(None),
+    hsn_code: Optional[str] = Form(None),
     specifications: Optional[str] = Form(None),  # JSON string
     isFeatured: Optional[str] = Form(None),
     is_featured: Optional[str] = Form(None),
@@ -395,6 +399,7 @@ async def create_seller_product(
         is_featured=(str(isFeatured).lower() in ("true", "1", "yes")) if isFeatured is not None else False,
         is_available=(str(isAvailable).lower() in ("true", "1", "yes")) if isAvailable is not None else True,
         expiry_date=date.fromisoformat(expiry_date_str.strip()) if expiry_date_str else None,
+        hsn_code=hsnCode or hsn_code or None,
         meta_title=meta_title,
         meta_description=meta_description,
         manufacturer_name=manufacturerName or None,
@@ -509,6 +514,8 @@ async def update_seller_product(
     is_available: Optional[str] = Form(None),
     expiryDate: Optional[str] = Form(None),
     expiry_date: Optional[str] = Form(None),
+    hsnCode: Optional[str] = Form(None),
+    hsn_code: Optional[str] = Form(None),
     manufacturerName: Optional[str] = Form(None),
     manufacturerAddress: Optional[str] = Form(None),
     cancelPolicy: Optional[str] = Form(None),
@@ -642,6 +649,10 @@ async def update_seller_product(
 
     if resolved_meta_description is not None:
         product.meta_description = resolved_meta_description
+
+    resolved_hsn = hsnCode if hsnCode is not None else hsn_code
+    if resolved_hsn is not None:
+        product.hsn_code = resolved_hsn or None
 
     if manufacturerName is not None:
         product.manufacturer_name = manufacturerName or None
