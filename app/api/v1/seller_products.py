@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from pydantic import BaseModel
 from decimal import Decimal
 import json
+from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.schemas.common import ResponseModel
 from app.models.admin import Admin, AdminRole
@@ -23,7 +24,7 @@ from app.models.product_image import ProductImage
 from app.models.product_variant import ProductVariant
 from app.api.admin_deps import require_seller_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
-from app.utils.slug import generate_slug
+from app.utils.slug import generate_slug, make_unique_slug
 from app.utils.packaging_label import normalize_packaging_label_type
 from app.api.v1.admin_upload import save_uploaded_file
 
@@ -558,7 +559,16 @@ async def update_seller_product(
     # Apply scalar field updates
     if name is not None:
         product.name = name
-        product.slug = generate_slug(name)
+        # Only update slug when the name actually changes, and avoid conflicts
+        new_slug = generate_slug(name)
+        if new_slug != product.slug:
+            existing_slugs = [
+                row[0]
+                for row in db.query(Product.slug)
+                .filter(Product.id != product_id)
+                .all()
+            ]
+            product.slug = make_unique_slug(new_slug, existing_slugs)
 
     if description is not None:
         product.description = description
@@ -645,8 +655,12 @@ async def update_seller_product(
     if returnPolicy is not None:
         product.return_policy = returnPolicy or None
 
-    db.commit()
-    db.refresh(product)
+    try:
+        db.commit()
+        db.refresh(product)
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not save product: {e.orig}")
 
     # Handle image uploads
     if images is not None:
@@ -708,7 +722,11 @@ async def update_seller_product(
                         sgst=Decimal(str(v.get("sgst") or 0)),
                     )
                     db.add(new_variant)
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError as e:
+                db.rollback()
+                raise HTTPException(status_code=400, detail=f"Could not save variants: {e.orig}")
 
     log_admin_activity(
         db=db,
