@@ -1157,11 +1157,15 @@ async def upload_seller_variant_images(
     if not variant:
         raise HTTPException(status_code=404, detail="Variant not found")
 
-    form = await request.form()
-    image_files: List[UploadFile] = []
-    for key, val in form.multi_items():
-        if key == "images" and isinstance(val, UploadFile) and val.filename:
-            image_files.append(val)
+    try:
+        form = await request.form()
+        raw = form.getlist("images")
+    except Exception:
+        raw = []
+    image_files: List[UploadFile] = [
+        f for f in (raw if isinstance(raw, list) else [raw])
+        if f is not None and hasattr(f, "filename") and hasattr(f, "file") and f.filename
+    ]
 
     if not image_files:
         raise HTTPException(status_code=400, detail="No images provided")
