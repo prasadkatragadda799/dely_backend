@@ -10,9 +10,9 @@ from uuid import UUID
 from datetime import date, timedelta
 from pydantic import BaseModel
 from decimal import Decimal
+import json
 from app.database import get_db
 from app.schemas.common import ResponseModel
-from app.schemas.admin_product import AdminProductUpdate
 from app.models.admin import Admin, AdminRole
 from app.models.product import Product
 from app.models.product_service_area import ProductServiceArea
@@ -20,9 +20,11 @@ from app.models.category import Category
 from app.models.brand import Brand
 from app.models.company import Company
 from app.models.product_image import ProductImage
+from app.models.product_variant import ProductVariant
 from app.api.admin_deps import require_seller_or_above, get_current_active_admin
 from app.utils.admin_activity import log_admin_activity
 from app.utils.slug import generate_slug
+from app.utils.packaging_label import normalize_packaging_label_type
 from app.api.v1.admin_upload import save_uploaded_file
 
 router = APIRouter()
@@ -428,66 +430,245 @@ async def create_seller_product(
 @router.put("/{product_id}", response_model=ResponseModel)
 async def update_seller_product(
     product_id: str,
-    product_data: AdminProductUpdate,
     request: Request,
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    categoryId: Optional[str] = Form(None),
+    category_id: Optional[str] = Form(None),
+    divisionId: Optional[str] = Form(None),
+    division_id: Optional[str] = Form(None),
+    brand_id: Optional[str] = Form(None),
+    brandId: Optional[str] = Form(None),
+    company_id: Optional[str] = Form(None),
+    companyId: Optional[str] = Form(None),
+    mrp: Optional[Decimal] = Form(None),
+    sellingPrice: Optional[Decimal] = Form(None),
+    selling_price: Optional[Decimal] = Form(None),
+    commissionCost: Optional[Decimal] = Form(None),
+    commission_cost: Optional[Decimal] = Form(None),
+    stockQuantity: Optional[int] = Form(None),
+    stock_quantity: Optional[int] = Form(None),
+    minOrderQuantity: Optional[int] = Form(None),
+    min_order_quantity: Optional[int] = Form(None),
+    unit: Optional[str] = Form(None),
+    piecesPerSet: Optional[int] = Form(None),
+    pieces_per_set: Optional[int] = Form(None),
+    isFeatured: Optional[str] = Form(None),
+    is_featured: Optional[str] = Form(None),
+    isAvailable: Optional[str] = Form(None),
+    is_available: Optional[str] = Form(None),
+    expiryDate: Optional[str] = Form(None),
+    expiry_date: Optional[str] = Form(None),
+    manufacturerName: Optional[str] = Form(None),
+    manufacturerAddress: Optional[str] = Form(None),
+    cancelPolicy: Optional[str] = Form(None),
+    returnPolicy: Optional[str] = Form(None),
+    meta_title: Optional[str] = Form(None),
+    metaTitle: Optional[str] = Form(None),
+    meta_description: Optional[str] = Form(None),
+    metaDescription: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),
+    images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
+    primaryIndex: Optional[int] = Form(None),
+    primary_index: Optional[int] = Form(None),
     seller: Admin = Depends(require_seller_or_above),
     db: Session = Depends(get_db)
 ):
     """
-    Update a product.
-    Sellers can only update products from their company.
+    Update a product. Accepts multipart/form-data identical to the create endpoint.
+    Sellers can only update products they created.
     """
     product = db.query(Product).filter(Product.id == product_id).first()
-    
+
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Check access
+
     if not check_seller_product_access(seller, product):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. You can only update products created by you."
         )
-    
-    # Update fields
-    if product_data.name is not None:
-        product.name = product_data.name
-        product.slug = generate_slug(product_data.name)
-    
-    if product_data.description is not None:
-        product.description = product_data.description
-    
-    if product_data.mrp is not None:
-        product.mrp = product_data.mrp
-    
-    if product_data.selling_price is not None:
-        product.selling_price = product_data.selling_price
-    
-    if product_data.stock_quantity is not None:
-        product.stock_quantity = product_data.stock_quantity
-    
-    if product_data.is_available is not None:
-        product.is_available = product_data.is_available
-    
-    if product_data.is_featured is not None:
-        product.is_featured = product_data.is_featured
-    
+
+    # Normalize camelCase / snake_case aliases
+    resolved_category_id = categoryId or category_id
+    resolved_division_id = divisionId or division_id
+    resolved_brand_id = brand_id or brandId
+    resolved_company_id = company_id or companyId
+    resolved_selling_price = sellingPrice if sellingPrice is not None else selling_price
+    resolved_commission_cost = commissionCost if commissionCost is not None else commission_cost
+    resolved_stock = stockQuantity if stockQuantity is not None else stock_quantity
+    resolved_moq = minOrderQuantity if minOrderQuantity is not None else min_order_quantity
+    resolved_pps = piecesPerSet if piecesPerSet is not None else pieces_per_set
+    resolved_is_featured = isFeatured if isFeatured is not None else is_featured
+    resolved_is_available = isAvailable if isAvailable is not None else is_available
+    resolved_expiry = expiryDate or expiry_date
+    resolved_meta_title = meta_title or metaTitle
+    resolved_meta_description = meta_description or metaDescription
+    resolved_primary_index = primaryIndex if primaryIndex is not None else primary_index
+
+    # Apply scalar field updates
+    if name is not None:
+        product.name = name
+        product.slug = generate_slug(name)
+
+    if description is not None:
+        product.description = description
+
+    if resolved_category_id:
+        try:
+            UUID(resolved_category_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid category ID format")
+        category = db.query(Category).filter(Category.id == resolved_category_id).first()
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+        product.category_id = resolved_category_id
+
+    if resolved_division_id is not None:
+        if resolved_division_id:
+            try:
+                UUID(resolved_division_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid division ID format")
+        product.division_id = resolved_division_id or None
+
+    if resolved_brand_id is not None:
+        if resolved_brand_id:
+            try:
+                UUID(resolved_brand_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid brand ID format")
+        product.brand_id = resolved_brand_id or None
+
+    if resolved_company_id is not None:
+        if resolved_company_id:
+            try:
+                UUID(resolved_company_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid company ID format")
+        product.company_id = resolved_company_id or None
+
+    if mrp is not None:
+        product.mrp = mrp
+
+    if resolved_selling_price is not None:
+        product.selling_price = resolved_selling_price
+
+    if resolved_commission_cost is not None:
+        product.commission_cost = resolved_commission_cost
+
+    if resolved_stock is not None:
+        product.stock_quantity = int(resolved_stock)
+
+    if resolved_moq is not None:
+        product.min_order_quantity = int(resolved_moq)
+
+    if unit is not None:
+        product.unit = unit
+        product.pieces_per_set = _normalize_pieces_per_set(unit, resolved_pps)
+    elif resolved_pps is not None:
+        product.pieces_per_set = _normalize_pieces_per_set(product.unit, resolved_pps)
+
+    if resolved_is_featured is not None:
+        product.is_featured = str(resolved_is_featured).lower() in ("true", "1", "yes")
+
+    if resolved_is_available is not None:
+        product.is_available = str(resolved_is_available).lower() in ("true", "1", "yes")
+
+    if resolved_expiry is not None:
+        product.expiry_date = date.fromisoformat(resolved_expiry.strip()) if resolved_expiry.strip() else None
+
+    if resolved_meta_title is not None:
+        product.meta_title = resolved_meta_title
+
+    if resolved_meta_description is not None:
+        product.meta_description = resolved_meta_description
+
+    if manufacturerName is not None:
+        product.manufacturer_name = manufacturerName or None
+
+    if manufacturerAddress is not None:
+        product.manufacturer_address = manufacturerAddress or None
+
+    if cancelPolicy is not None:
+        product.cancel_policy = cancelPolicy or None
+
+    if returnPolicy is not None:
+        product.return_policy = returnPolicy or None
+
     db.commit()
     db.refresh(product)
-    
-    # Log activity
+
+    # Handle image uploads
+    if images is not None:
+        image_files: List[UploadFile] = images if isinstance(images, list) else [images]
+        for idx, image in enumerate(image_files):
+            try:
+                image_url = save_uploaded_file(image, "product", product.id, request)
+                product_image = ProductImage(
+                    product_id=product.id,
+                    image_url=image_url,
+                    display_order=idx,
+                    is_primary=(resolved_primary_index is not None and idx == int(resolved_primary_index)),
+                )
+                db.add(product_image)
+            except Exception:
+                continue
+        db.commit()
+
+    # Handle variants (upsert by id when provided, create new otherwise)
+    if variants:
+        try:
+            variants_list = json.loads(variants) if isinstance(variants, str) else variants
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid JSON in variants field")
+        if isinstance(variants_list, list):
+            for v in variants_list:
+                variant_id = v.get("id")
+                existing = db.query(ProductVariant).filter(
+                    ProductVariant.id == str(variant_id),
+                    ProductVariant.product_id == str(product.id)
+                ).first() if variant_id else None
+
+                ptype = normalize_packaging_label_type(v.get("packagingLabelType") or "")
+                if existing:
+                    existing.hsn_code = v.get("hsnCode") or existing.hsn_code
+                    existing.packaging_label_type = ptype
+                    existing.set_pcs = v.get("setPieces") or existing.set_pcs
+                    existing.weight = v.get("weight") or existing.weight
+                    existing.mrp = Decimal(str(v["mrp"])) if v.get("mrp") is not None else existing.mrp
+                    existing.special_price = Decimal(str(v["specialPrice"])) if v.get("specialPrice") is not None else existing.special_price
+                    existing.free_item = v.get("freeItem") or existing.free_item
+                    existing.min_order_quantity = int(v.get("minOrderQuantity") or 1)
+                    existing.cgst = Decimal(str(v.get("cgst") or 0))
+                    existing.sgst = Decimal(str(v.get("sgst") or 0))
+                else:
+                    new_variant = ProductVariant(
+                        product_id=str(product.id),
+                        hsn_code=v.get("hsnCode") or "",
+                        packaging_label_type=ptype,
+                        set_pcs=v.get("setPieces") or "",
+                        weight=v.get("weight") or "",
+                        mrp=Decimal(str(v.get("mrp") or 0)),
+                        special_price=Decimal(str(v.get("specialPrice") or 0)),
+                        free_item=v.get("freeItem") or "",
+                        min_order_quantity=int(v.get("minOrderQuantity") or 1),
+                        cgst=Decimal(str(v.get("cgst") or 0)),
+                        sgst=Decimal(str(v.get("sgst") or 0)),
+                    )
+                    db.add(new_variant)
+            db.commit()
+
     log_admin_activity(
         db=db,
         admin_id=seller.id,
         action="product_updated",
         entity_type="product",
         entity_id=UUID(str(product.id)),
-        details={
-            "product_name": product.name
-        },
+        details={"product_name": product.name},
         request=request
     )
-    
+
     return ResponseModel(
         success=True,
         data={
