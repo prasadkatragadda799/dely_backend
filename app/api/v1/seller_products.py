@@ -193,6 +193,11 @@ async def get_seller_product(
         "specifications": product.specifications,
         "is_featured": product.is_featured,
         "is_available": product.is_available,
+        "expiry_date": product.expiry_date.isoformat() if getattr(product, "expiry_date", None) else None,
+        "manufacturer_name": getattr(product, "manufacturer_name", None),
+        "manufacturer_address": getattr(product, "manufacturer_address", None),
+        "cancel_policy": getattr(product, "cancel_policy", None),
+        "return_policy": getattr(product, "return_policy", None),
         "meta_title": product.meta_title,
         "meta_description": product.meta_description,
         "category": {
@@ -208,20 +213,30 @@ async def get_seller_product(
             "name": product.company.name
         } if product.company else None,
         "images": [{
-            "id": img.id,
-            "url": img.image_url,
+            "id": str(img.id),
+            "imageUrl": img.image_url,
+            "image_url": img.image_url,
             "is_primary": img.is_primary,
             "display_order": img.display_order
         } for img in product.product_images] if product.product_images else [],
         "variants": [{
-            "id": v.id,
+            "id": str(v.id),
+            "hsnCode": v.hsn_code,
             "hsn_code": v.hsn_code,
+            "packagingLabelType": getattr(v, "packaging_label_type", None),
             "packaging_label_type": getattr(v, "packaging_label_type", None),
+            "setPieces": v.set_pcs,
             "set_pcs": v.set_pcs,
             "weight": v.weight,
             "mrp": float(v.mrp) if v.mrp else 0.0,
+            "specialPrice": float(v.special_price) if v.special_price else 0.0,
             "special_price": float(v.special_price) if v.special_price else 0.0,
-            "free_item": v.free_item
+            "freeItem": v.free_item,
+            "free_item": v.free_item,
+            "minOrderQuantity": getattr(v, "min_order_quantity", 1) or 1,
+            "min_order_quantity": getattr(v, "min_order_quantity", 1) or 1,
+            "cgst": float(getattr(v, "cgst", 0) or 0),
+            "sgst": float(getattr(v, "sgst", 0) or 0),
         } for v in product.variants] if product.variants else [],
         "created_at": product.created_at.isoformat() if product.created_at else None,
         "updated_at": product.updated_at.isoformat() if product.updated_at else None
@@ -270,6 +285,11 @@ async def create_seller_product(
     slug: Optional[str] = Form(None),
     expiryDate: Optional[str] = Form(None),
     expiry_date: Optional[str] = Form(None),
+    manufacturerName: Optional[str] = Form(None),
+    manufacturerAddress: Optional[str] = Form(None),
+    cancelPolicy: Optional[str] = Form(None),
+    returnPolicy: Optional[str] = Form(None),
+    variants: Optional[str] = Form(None),  # JSON string array of variants
     images: Optional[Union[UploadFile, List[UploadFile]]] = File(None),
     primaryIndex: Optional[int] = Form(None),
     primary_index: Optional[int] = Form(None),
@@ -376,9 +396,13 @@ async def create_seller_product(
         expiry_date=date.fromisoformat(expiry_date_str.strip()) if expiry_date_str else None,
         meta_title=meta_title,
         meta_description=meta_description,
+        manufacturer_name=manufacturerName or None,
+        manufacturer_address=manufacturerAddress or None,
+        cancel_policy=cancelPolicy or None,
+        return_policy=returnPolicy or None,
         created_by=str(seller.id)
     )
-    
+
     db.add(new_product)
     db.commit()
     db.refresh(new_product)
@@ -401,6 +425,31 @@ async def create_seller_product(
                 # Don't fail entire create if an image fails; keep product created.
                 continue
         db.commit()
+
+    # Save variants if provided
+    if variants:
+        try:
+            variants_list = json.loads(variants) if isinstance(variants, str) else variants
+        except (ValueError, TypeError):
+            variants_list = []
+        if isinstance(variants_list, list):
+            for v in variants_list:
+                ptype = normalize_packaging_label_type(v.get("packagingLabelType") or "")
+                new_variant = ProductVariant(
+                    product_id=str(new_product.id),
+                    hsn_code=v.get("hsnCode") or "",
+                    packaging_label_type=ptype,
+                    set_pcs=v.get("setPieces") or "",
+                    weight=v.get("weight") or "",
+                    mrp=Decimal(str(v.get("mrp") or 0)),
+                    special_price=Decimal(str(v.get("specialPrice") or 0)),
+                    free_item=v.get("freeItem") or "",
+                    min_order_quantity=int(v.get("minOrderQuantity") or 1),
+                    cgst=Decimal(str(v.get("cgst") or 0)),
+                    sgst=Decimal(str(v.get("sgst") or 0)),
+                )
+                db.add(new_variant)
+            db.commit()
     
     # Log activity
     log_admin_activity(
@@ -633,7 +682,9 @@ async def update_seller_product(
                 ptype = normalize_packaging_label_type(v.get("packagingLabelType") or "")
                 if existing:
                     existing.hsn_code = v.get("hsnCode") or existing.hsn_code
-                    existing.packaging_label_type = ptype
+                    # Only overwrite packaging_label_type when the incoming value is non-null
+                    if ptype is not None:
+                        existing.packaging_label_type = ptype
                     existing.set_pcs = v.get("setPieces") or existing.set_pcs
                     existing.weight = v.get("weight") or existing.weight
                     existing.mrp = Decimal(str(v["mrp"])) if v.get("mrp") is not None else existing.mrp
