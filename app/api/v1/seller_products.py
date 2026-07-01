@@ -3,7 +3,7 @@ Seller Product Management Endpoints
 Sellers can manage products across companies (as requested).
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Form, File, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_
 from typing import Optional, List, Union
 from uuid import UUID
@@ -71,8 +71,14 @@ async def list_seller_products(
     Sellers only see products from their company.
     Admins see all products.
     """
-    query = db.query(Product)
-    
+    query = db.query(Product).options(
+        joinedload(Product.category),
+        joinedload(Product.company),
+        joinedload(Product.division),
+        joinedload(Product.product_images),
+        joinedload(Product.variants),
+    )
+
     # Sellers should only see products created by them.
     if seller.role == AdminRole.SELLER:
         query = query.filter(Product.created_by == str(seller.id))
@@ -116,26 +122,47 @@ async def list_seller_products(
     # Format response
     product_list = []
     for p in products:
+        product_variants = p.variants or []
+        v0 = product_variants[0] if product_variants else None
+        # Resolve HSN: product-level first, then first variant
+        hsn = getattr(p, "hsn_code", None) or (getattr(v0, "hsn_code", None) if v0 else None)
         product_data = {
             "id": str(p.id),
             "name": p.name,
             "slug": p.slug,
+            "hsnCode": hsn,
+            "hsn_code": hsn,
             "mrp": float(p.mrp) if p.mrp else 0.0,
             "selling_price": float(p.selling_price) if p.selling_price else 0.0,
             "stock_quantity": p.stock_quantity,
             "is_available": p.is_available,
             "is_featured": p.is_featured,
             "expiry_date": p.expiry_date.isoformat() if getattr(p, "expiry_date", None) else None,
+            "division": {
+                "id": str(p.division.id),
+                "name": p.division.name,
+                "slug": getattr(p.division, "slug", None),
+            } if p.division else None,
             "category": {
-                "id": p.category.id,
+                "id": str(p.category.id),
                 "name": p.category.name
             } if p.category else None,
             "company": {
-                "id": p.company.id,
+                "id": str(p.company.id),
                 "name": p.company.name
             } if p.company else None,
+            "variants": [{
+                "id": str(v.id),
+                "hsnCode": v.hsn_code,
+                "hsn_code": v.hsn_code,
+                "packagingLabelType": getattr(v, "packaging_label_type", None),
+                "setPieces": v.set_pcs,
+                "mrp": float(v.mrp) if v.mrp else 0.0,
+                "specialPrice": float(v.special_price) if v.special_price else 0.0,
+            } for v in product_variants],
             "images": [{
                 "url": img.image_url,
+                "imageUrl": img.image_url,
                 "is_primary": img.is_primary
             } for img in p.product_images] if p.product_images else [],
             "created_at": p.created_at.isoformat() if p.created_at else None
